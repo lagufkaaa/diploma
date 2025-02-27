@@ -3,7 +3,7 @@ import numpy as np
 from polygon import polygon
 from encoding import encoding
 from auxiliary import auxiliary
-
+#,asasdfakndsiofaosdjfa
 m = 5
 
 P = np.zeros((m, 2))
