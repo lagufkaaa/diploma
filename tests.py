@@ -1,9 +1,9 @@
 import numpy as np
-
-from polygon import polygon
+#git test comment 
+from __polygon import polygon
 from encoding import encoding
 from auxiliary import auxiliary
-
+#,asasdfakndsiofaosdjfa
 m = 5
 
 P = np.zeros((m, 2))
@@ -11,6 +11,7 @@ P = np.random.uniform(0, 10, (m, 2))
 
 P[0][0] = 0
 
+#aksdfofg0e v
 P = polygon.__init__(P)
 
 auxiliary.test(P, n = 25)
