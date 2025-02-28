@@ -49,4 +49,3 @@ class polygon:
             if p and p[1] <= poi[1]:
                 count2 += 1
         return count % 2 == 1 or count2 % 2 == 1
-

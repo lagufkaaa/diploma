@@ -6,26 +6,20 @@ from auxiliary import auxiliary
 #,asasdfakndsiofaosdjfa
 m = 5
 
-P = np.zeros((m, 2))
-P = np.random.uniform(0, 10, (m, 2))
+poly = np.random.uniform(0, 10, (m, 2))  # Создаём массив случайных точек
+poly[0][0] = 0  # Меняем первую координату
 
-P[0][0] = 0
-
-#aksdfofg0e v
-P = polygon.__init__(P)
-
-auxiliary.test(P, n = 25)
+P = polygon(poly)  # Создаём объект класса polygon
+encoding.test(P, n=25)
 
 n = 10
 h = 0.1
 
-P1 = [
+poly1 = [
     [0, 0],
     [1, 0],
     [1, 1],
     [0, 1]
 ]
 
-P1 = polygon.__init__(P1)
-
-auxiliary.test(P1, n = n)
+P1 = polygon(poly1)  # Правильный вызов конструктора
