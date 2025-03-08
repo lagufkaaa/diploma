@@ -94,10 +94,10 @@ class encoding:
         return K_seg, K_points
 
     def test(self, n = None, h = None):
-        P = polygon.points
-        polygon = np.vstack([P, P[0]])
+        P = self.polygon.points
+        poly = np.vstack([P, P[0]])
 
-        plt.plot(polygon[:, 0], polygon[:, 1], marker='o', linestyle='-')
+        plt.plot(poly[:, 0], poly[:, 1], marker='o', linestyle='-')
         plt.xlabel("X")
         plt.ylabel("Y")
         plt.title("Многоугольник из случайных точек")
@@ -116,7 +116,7 @@ class encoding:
 
         X = [(x0 + h*i) for i in range(n + 1)]
 
-        T = polygon.inter_T(P, X)
+        T = poly.inter_T(P, X)
 
         # # Отрисовка многоугольника
         # plt.plot(polygon[:, 0], polygon[:, 1], color='gray', marker='o', linestyle='-', alpha=1, zorder=1)
@@ -177,7 +177,7 @@ class encoding:
         cod_seg, cod_points = self.cod(X, P)
 
         # Отрисовка многоугольника
-        plt.plot(polygon[:, 0], polygon[:, 1], color='gray', marker='o', linestyle='-', alpha=1, zorder=1)
+        plt.plot(poly[:, 0], poly[:, 1], color='gray', marker='o', linestyle='-', alpha=1, zorder=1)
 
         # Отрисовка вертикальной линии x = x1
         for x1 in X:
