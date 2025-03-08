@@ -56,8 +56,8 @@ class polygon:
 
         for i in range(r):
             temp = []
-            tempo_and = i*ang
-            mat = np.array([[math.cos(temp_ang), -math.sin(temp.ang)], [math.sin(temp.ang), math.cos(temp_ang)]])
+            temp_ang = i*ang
+            mat = np.array([[math.cos(temp_ang), -math.sin(temp_ang)], [math.sin(temp_ang), math.cos(temp_ang)]])
 
             min_y = np.inf
             min_x = np.inf
