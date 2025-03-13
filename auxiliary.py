@@ -1,7 +1,7 @@
 import numpy as np
 import math as math
 
-from __polygon import polygon
+from polygon import polygon
 
 eps = 1e-10
 

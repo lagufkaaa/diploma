@@ -1,6 +1,6 @@
 import numpy as np
 #git test comment 
-from __polygon import polygon
+from polygon import polygon
 from encoding import encoding
 from auxiliary import auxiliary
 #,asasdfakndsiofaosdjfa

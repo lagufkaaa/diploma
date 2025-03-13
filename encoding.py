@@ -2,7 +2,7 @@ import numpy as np
 import math as math
 import matplotlib.pyplot as plt
 
-from __polygon import polygon
+from polygon import polygon
 from auxiliary import auxiliary
 
 eps = 1e-10
