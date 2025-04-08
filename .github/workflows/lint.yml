@@ -20,10 +20,10 @@ jobs:
           pip install -r requirements.txt  # Установить зависимости проекта
 
       - name: Run pylint
-        run: pylint your_project_folder/ --fail-under=8.0 
+        run: pylint ./ --fail-under=8.0 
 
       - name: Run flake8
-        run: flake8 your_project_folder/ --max-line-length=100 --count --show-source --statistics
+        run: flake8 ./ --max-line-length=100 --count --show-source --statistics
 
       - name: Run mypy
-        run: mypy your_project_folder/ --ignore-missing-imports
+        run: mypy ./ --ignore-missing-imports
