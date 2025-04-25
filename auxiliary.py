@@ -66,4 +66,5 @@ class Auxiliary:
 
             # print(p, j)
         return proj
+            
     

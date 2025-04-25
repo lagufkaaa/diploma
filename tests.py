@@ -1,6 +1,5 @@
 import numpy as np
 #git test comment 
-from polygon import Polygon
 from encoding import Encoding
 from auxiliary import Auxiliary
 from test import Test
@@ -12,10 +11,9 @@ from shapely.geometry import Polygon
 
 m = 5
 
-poly = np.random.uniform(0, 10, (m, 2))  # Создаём массив случайных точек
-poly[0][0] = 0  # Меняем первую координату
+poly = np.random.uniform(0, 10, (m, 2)) 
+poly[0][0] = 0
 
- # Создаём объект класса polygon
 Test.test_encoding(poly, n=25)
 
 n = 10
