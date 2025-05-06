@@ -25,10 +25,11 @@ class Test:
         plt.grid(True)
         plt.show()
 
-        x0 = 0
+        x0 = min([P[i][0] for i in range(len(P))])
+        # x0 = -1
         # xn = max([P[i][0] for i in range(len(P))])
         # xn = 10
-        xn = Auxiliary.round_up_if_needed(max([P[i][0] for i in range(len(P))]))
+        xn = max([P[i][0] for i in range(len(P))])
         # print("xn =",  xn)
         if n:
             h = (xn - x0)/n

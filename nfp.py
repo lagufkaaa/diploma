@@ -13,7 +13,7 @@ class NFP:
 
     SCALE = 1e6 
 
-    def polygon_to_path(polygon):
+    def polygon_to_path_pycl(polygon):
         """Преобразует shapely Polygon в формат, подходящий для pyclipper (целочисленные координаты)."""
         if not isinstance(polygon, Polygon):
             raise TypeError(f"[polygon_to_path] Ожидался Polygon, получен: {type(polygon).__name__}")
@@ -24,6 +24,21 @@ class NFP:
         outer = to_int_coords(polygon.exterior.coords[:-1]) 
         holes = [to_int_coords(interior.coords[:-1]) for interior in polygon.interiors]
         return outer, holes
+    
+
+    def polygon_to_path(polygon):
+        """Преобразует shapely Polygon в numpy массив точек (внешний контур + отверстия при необходимости)."""
+        if not isinstance(polygon, Polygon):
+            raise TypeError(f"[polygon_to_path] Ожидался Polygon, получен: {type(polygon).__name__}")
+
+        # Внешний контур (без повторной конечной точки)
+        exterior = np.array(polygon.exterior.coords[:-1], dtype=np.float64)
+
+        # Если нужно также включать отверстия:
+        # interiors = [np.array(interior.coords[:-1], dtype=np.float64) for interior in polygon.interiors]
+
+        return exterior  # или: return exterior, interiors
+
 
 
     def minkowski_difference(polygon1, polygon2, anchor_point=(0, 0)):
@@ -32,8 +47,8 @@ class NFP:
         if not isinstance(polygon2, Polygon):
             raise TypeError(f"[minkowski_difference] polygon2 должен быть Polygon, получен {type(polygon2).__name__}")
 
-        outer1, _ = NFP.polygon_to_path(polygon1)
-        outer2, _ = NFP.polygon_to_path(polygon2)
+        outer1, _ = NFP.polygon_to_path_pycl(polygon1)
+        outer2, _ = NFP.polygon_to_path_pycl(polygon2)
 
         ax, ay = int(anchor_point[0] * NFP.SCALE), int(anchor_point[1] * NFP.SCALE)
         inv_outer1 = [(-x + ax, -y + ay) for x, y in outer1]

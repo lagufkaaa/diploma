@@ -28,7 +28,6 @@ poly1 = [
 
 P1 = Polygon(poly1)  # Правильный вызов конструктора
 
-
 polygon1 = Polygon([(0, 0), (0.5, 0), (0.5, 1)])
 polygon2 = Polygon([(0, 0), (1, 0), (1, 1), (3, 1), (3, 0), (4, 0), (4, 2), (0, 2)])
 anchor_point = (0, 0)
@@ -39,3 +38,7 @@ assert isinstance(polygon2, geom.Polygon), f"polygon2 должен быть Poly
 onfp = NFP.outer_no_fit_polygon(polygon1, polygon2, anchor_point)
 
 Test.test_nfp(polygon1, polygon2, onfp, anchor_point)
+
+newonfp = NFP.polygon_to_path(onfp)
+
+Test.test_encoding(newonfp, n=25)
