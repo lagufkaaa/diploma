@@ -14,6 +14,16 @@ from nfp import NFP
 class Test:
     def __init__(self):
         pass
+    
+    def test_vis(P):
+        polygon = np.vstack([P, P[0]])
+
+        plt.plot(polygon[:, 0], polygon[:, 1], marker='o', linestyle='-')
+        plt.xlabel("X")
+        plt.ylabel("Y")
+        plt.title("Многоугольник из случайных точек")
+        plt.grid(True)
+        plt.show()
 
     def test_encoding(P, n = None, h = None):
         polygon = np.vstack([P, P[0]])

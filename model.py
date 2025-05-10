@@ -1,50 +1,81 @@
 import ortools
+from ortools.linear_solver import pywraplp
 import numpy as np
 from nfp import NFP
 from shapely.geometry import Polygon
 from encoding import Encoding
 
+def model_func(items, H, W, amount_rot, n):
+    solver = pywraplp.Solver.CreateSolver('GLOP')  # Или 'SCIP' если нужны булевы/целые переменные
 
-# items - np массивы точек многоугольников 
-def model(items, H, W, amount_rot, n):
-    h = (W)/n
-    X = [(h*i) for i in range(n + 1)]
+    if not solver:
+        raise RuntimeError("Решатель не создан — проверь, установлен ли OR-Tools и выбрано ли правильное имя решателя.")
 
-    ONFP = []
-    for i in amount_items:
-        ONFP.append([])
-        for j in amount_items:
-            if i < j:
-                item1 = Polygon(items[i])
-                item2 = Polygon(items[j])
+    h = W / n
+    X_vals = [(h * i) for i in range(n + 1)]
 
-            anchor_point = item1[0]
-
-            ONFP[i].append(NFP.outer_no_fit_polygon(item1, item2, anchor_point))
-            
-    ONFP_COD = [Encoding.cod(X, NFP.polygon_to_path(onfp)) for onfp in ONFP]
     amount_items = len(items)
+    M = 1e9 
 
-    M = 99999 
-    # M = np.inf
+    X = [[solver.NumVar(0.0, W, f'X_{i}_{j}') for j in range(amount_rot)] for i in range(amount_items)]
 
-    Areas = [i.area for i in items]
-
-    used = np.zeros(amount_items, amount_rot)
-    for i in range(amount_items):
-        for j in range(amount_rot):
-            used[i][j] = model.NewBoolVar(f'used_{i} rotation_{j}')
-
-    X = np.zeros(amount_items, amount_rot)
-    for i in range(amount_items):
-        for j in range(amount_rot):
-            X[i][j] = model.NewBoolVar(f'coords_{i} rotation_{j}')
-
+    used = [[solver.BoolVar(f'used_{i}_{j}') for j in range(amount_rot)] for i in range(amount_items)]
 
     for i in range(amount_items):
-        model.Add(sum(used[i]) <= 1)
-        model.Add(sum(used[i]) >= 1)
+        solver.Add(solver.Sum(used[i]) == 1)
 
-    items_enc = []
-    values = [Areas[i] * used[i] for i in range(amount_items)]
-    model.Maximize(sum(values))
+    areas = [item.area for item in items]
+    total_value = solver.Sum(used[i][j] * areas[i] for i in range(amount_items) for j in range(amount_rot))
+    solver.Maximize(total_value)
+
+    status = solver.Solve()
+    if status == pywraplp.Solver.OPTIMAL:
+        print("Найдено оптимальное решение")
+        for i in range(amount_items):
+            for j in range(amount_rot):
+                if used[i][j].solution_value() > 0.5:
+                    print(f"Item {i} uses rotation {j}, X = {X[i][j].solution_value():.2f}")
+    else:
+        print("Решение не найдено")
+
+    return solver
+
+def parse(file_path):
+    with open(file_path, 'r') as f:
+        lines = f.readlines()
+
+    i = 0
+    items = []
+
+    while i < len(lines):
+        line = lines[i].strip()
+        if line.startswith('PIECE'):
+            i += 1  # Пропускаем 'PIECE'
+
+            quantity_line = lines[i].strip()
+            quantity = int(quantity_line.split()[1])
+            i += 1
+
+            vertex_line = lines[i].strip()
+            vertex_count = int(vertex_line.split()[3])
+            i += 1
+
+            if not lines[i].strip().startswith('VERTICES'):
+                raise ValueError(f"Ожидалась строка 'VERTICES', получено: {lines[i]}")
+            i += 1
+
+            vertices = []
+            for _ in range(vertex_count):
+                x_str, y_str = lines[i].strip().split()
+                x, y = float(x_str), float(y_str)
+                vertices.append([x, y])
+                i += 1
+
+            shape = np.array(vertices)
+            for _ in range(quantity):
+                items.append(shape)
+
+        else:
+            i += 1
+
+    return items
