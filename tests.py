@@ -43,6 +43,7 @@ from shapely.geometry import Polygon
 
 # Test.test_encoding(newonfp, n=25)
 
-items = parse(".\\data_car_mats\\car_mats_2.txt")
+items = parse(".\\data_car_mats\\car_mats_10.txt")
+# for item in items:
+#     Test.test_vis(item)
 Test.test_vis(items[0])
-

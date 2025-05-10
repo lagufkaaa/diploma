@@ -50,7 +50,7 @@ def parse(file_path):
     while i < len(lines):
         line = lines[i].strip()
         if line.startswith('PIECE'):
-            i += 1  # Пропускаем 'PIECE'
+            i += 1 
 
             quantity_line = lines[i].strip()
             quantity = int(quantity_line.split()[1])
