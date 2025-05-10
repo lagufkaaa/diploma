@@ -47,3 +47,5 @@ items = parse(".\\data_car_mats\\car_mats_10.txt")
 # for item in items:
 #     Test.test_vis(item)
 Test.test_vis(items[0])
+
+print(model_func(items, H = 10000, W = 10000, amount_rot = 1, n = 25))

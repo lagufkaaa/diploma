@@ -24,20 +24,26 @@ def model_func(items, H, W, amount_rot, n):
     for i in range(amount_items):
         solver.Add(solver.Sum(used[i]) == 1)
 
-    areas = [item.area for item in items]
+    areas = [Polygon(item).area for item in items]
     total_value = solver.Sum(used[i][j] * areas[i] for i in range(amount_items) for j in range(amount_rot))
-    solver.Maximize(total_value)
+    opt = solver.Maximize(total_value)
 
     status = solver.Solve()
     if status == pywraplp.Solver.OPTIMAL:
         print("Найдено оптимальное решение")
+
+        total_used_area = 0.0
         for i in range(amount_items):
             for j in range(amount_rot):
                 if used[i][j].solution_value() > 0.5:
-                    print(f"Item {i} uses rotation {j}, X = {X[i][j].solution_value():.2f}")
+                    x_val = X[i][j].solution_value()
+                    area_val = areas[i]
+                    total_used_area += area_val
+                    print(f"Item {i} uses rotation {j}, X = {x_val:.2f}, Area = {area_val:.2f}")
+
+        print(f"\nОбщая использованная площадь: {total_used_area:.2f}")
     else:
         print("Решение не найдено")
-
     return solver
 
 def parse(file_path):
