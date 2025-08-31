@@ -1,12 +1,10 @@
 import numpy as np
-from libs.encoding import Encoding
-from libs.auxiliary import Auxiliary
-from libs.test import Test
-from libs.nfp import NFP
-from libs.model import parse, model_func
-
 import shapely.geometry as geom
 from shapely.geometry import Polygon
+
+from libs.model import parse, model_func
+from libs.nfp import NFP
+from libs.test import Test
 
 # m = 5
 
@@ -47,4 +45,4 @@ for item in items:
     Test.test_vis(item)
 Test.test_vis(items[0])
 
-print(model_func(items, H = 0, W = 0, amount_rot = 1, n = 25))
+print(model_func(items, H=0, W=0, amount_rot=1, n=25))

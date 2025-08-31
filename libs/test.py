@@ -1,20 +1,19 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import math as math
-
+import matplotlib.pyplot as plt
+import numpy as np
+import pyclipper
+from itertools import product
 from shapely.geometry import Polygon, LineString, MultiPolygon
 from shapely.ops import unary_union
-from itertools import product
-import pyclipper
 
-from libs.encoding import Encoding
 from libs.auxiliary import Auxiliary
-from libs.nfp import NFP
+from libs.encoding import Encoding
+
 
 class Test:
     def __init__(self):
         pass
-    
+
     def test_vis(P):
         polygon = np.vstack([P, P[0]])
 
@@ -25,7 +24,7 @@ class Test:
         plt.grid(True)
         plt.show()
 
-    def test_encoding(P, n = None, h = None):
+    def test_encoding(P, n=None, h=None):
         polygon = np.vstack([P, P[0]])
 
         plt.plot(polygon[:, 0], polygon[:, 1], marker='o', linestyle='-')
@@ -42,11 +41,11 @@ class Test:
         xn = max([P[i][0] for i in range(len(P))])
         # print("xn =",  xn)
         if n:
-            h = (xn - x0)/n
+            h = (xn - x0) / n
         else:
-            n = int((xn - x0)/h)
+            n = int((xn - x0) / h)
 
-        X = [(x0 + h*i) for i in range(n + 1)]
+        X = [(x0 + h * i) for i in range(n + 1)]
 
         T = Auxiliary.inter_T(X, P)
 
@@ -72,7 +71,6 @@ class Test:
         # # print(P)
 
         # seg, points = seg_x(T, P)
-
 
         # if seg:
         #   for segment in seg:
@@ -105,7 +103,6 @@ class Test:
         # plt.grid(True)
         # plt.show()
 
-
         cod_seg, cod_points = Encoding.cod(X, P)
 
         # Отрисовка многоугольника
@@ -122,7 +119,8 @@ class Test:
 
         if cod_seg:
             for segment in cod_seg:
-                plt.plot([segment[0][0], segment[1][0]], [segment[0][1], segment[1][1]], color='red', linestyle='-', linewidth=2, alpha=0.7)
+                plt.plot([segment[0][0], segment[1][0]], [segment[0][1], segment[1][1]], color='red', linestyle='-',
+                         linewidth=2, alpha=0.7)
 
         #   print(proj)
 
@@ -158,4 +156,3 @@ class Test:
         ax.set_title("Outer No-Fit Polygon Visualization")
         plt.grid()
         plt.show()
-

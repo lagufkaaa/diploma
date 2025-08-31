@@ -1,6 +1,6 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import math as math
+import numpy as np
+
 
 class Auxiliary:
     def __init__(self):
@@ -8,7 +8,7 @@ class Auxiliary:
 
     def round_up_if_needed(x):
         return x if x == int(x) else math.ceil(x)
-    
+
     def inter(x1, t1, t2):
         x_min, x_max = min(t1[0], t2[0]), max(t1[0], t2[0])
         if x1 < x_min or x1 > x_max:
@@ -26,7 +26,7 @@ class Auxiliary:
             return (t2[0], t2[1])
 
         return (x1, y)
-    
+
     def inter_T(X, P):
         T = []
         for x1 in X:
@@ -36,7 +36,7 @@ class Auxiliary:
                 if point and point not in T:
                     T.append(point)
         return T
-    
+
     def ins(poi, P):
         count = 0
         count2 = 0
@@ -48,7 +48,7 @@ class Auxiliary:
             if p and p[1] <= poi[1]:
                 count2 += 1
         return count % 2 == 1 or count2 % 2 == 1
-    
+
     def projections(X, P):
         proj = []
         for p in P:
@@ -66,5 +66,3 @@ class Auxiliary:
 
             # print(p, j)
         return proj
-            
-    

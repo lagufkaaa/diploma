@@ -1,9 +1,8 @@
+import numpy as np
 import ortools
 from ortools.linear_solver import pywraplp
-import numpy as np
-from libs.nfp import NFP
 from shapely.geometry import Polygon
-from libs.encoding import Encoding
+
 
 def model_func(items, H, W, amount_rot, n):
     solver = pywraplp.Solver.CreateSolver('GLOP')  # Или 'SCIP' если нужны булевы/целые переменные
@@ -12,7 +11,7 @@ def model_func(items, H, W, amount_rot, n):
     X_vals = [(h * i) for i in range(n + 1)]
 
     amount_items = len(items)
-    M = 1e9 
+    M = 1e9
 
     X = [[solver.NumVar(0.0, W, f'X_{i}_{j}') for j in range(amount_rot)] for i in range(amount_items)]
 
@@ -43,6 +42,7 @@ def model_func(items, H, W, amount_rot, n):
         print("Решение не найдено")
     return solver
 
+
 def parse(file_path):
     with open(file_path, 'r') as f:
         lines = f.readlines()
@@ -53,7 +53,7 @@ def parse(file_path):
     while i < len(lines):
         line = lines[i].strip()
         if line.startswith('PIECE'):
-            i += 1 
+            i += 1
 
             quantity_line = lines[i].strip()
             quantity = int(quantity_line.split()[1])

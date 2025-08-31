@@ -1,17 +1,16 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import math as math
-
+import numpy as np
+import pyclipper
+from itertools import product
 from shapely.geometry import Polygon, LineString, MultiPolygon
 from shapely.ops import unary_union
-from itertools import product
-import pyclipper
+
 
 class NFP:
     def __init__(self):
         pass
 
-    SCALE = 1e6 
+    SCALE = 1e6
 
     def polygon_to_path_pycl(polygon):
         """Преобразует shapely Polygon в формат, подходящий для pyclipper (целочисленные координаты)."""
@@ -21,10 +20,9 @@ class NFP:
         def to_int_coords(ring):
             return [(int(x * NFP.SCALE), int(y * NFP.SCALE)) for x, y in ring]
 
-        outer = to_int_coords(polygon.exterior.coords[:-1]) 
+        outer = to_int_coords(polygon.exterior.coords[:-1])
         holes = [to_int_coords(interior.coords[:-1]) for interior in polygon.interiors]
         return outer, holes
-    
 
     def polygon_to_path(polygon):
         """Преобразует shapely Polygon в numpy массив точек (внешний контур + отверстия при необходимости)."""
@@ -38,8 +36,6 @@ class NFP:
         # interiors = [np.array(interior.coords[:-1], dtype=np.float64) for interior in polygon.interiors]
 
         return exterior  # или: return exterior, interiors
-
-
 
     def minkowski_difference(polygon1, polygon2, anchor_point=(0, 0)):
         if not isinstance(polygon1, Polygon):
@@ -59,10 +55,9 @@ class NFP:
         polygons = [p.buffer(0) for p in polygons if p.is_valid and not p.is_empty]
 
         if not polygons:
-            return Polygon() 
+            return Polygon()
 
         return unary_union(polygons)
-
 
     def outer_no_fit_polygon(polygon1, polygon2, anchor_point=(0, 0)):
         if not isinstance(polygon1, Polygon):

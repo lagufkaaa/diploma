@@ -1,22 +1,23 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import math as math
+import numpy as np
 
 from libs.auxiliary import Auxiliary
 
 eps = 1e-10
 
+
 class Encoding:
     def __init__(self):
         pass
-    
+
     def seg_x(T, P):
         seg = []
         points = []
 
         for t1 in T:
             for t2 in T:
-                temp = [((t1[1] < p[1] < t2[1]) or (t2[1] < p[1] < t1[1])) and (t1[0] == p[0]) and (t2[0] == p[0]) for p in T]
+                temp = [((t1[1] < p[1] < t2[1]) or (t2[1] < p[1] < t1[1])) and (t1[0] == p[0]) and (t2[0] == p[0]) for p
+                        in T]
                 temp_filtered = [p if cond else False for p, cond in zip(T, temp)]
                 # if t1[0] == t2[0] and t1[1] != t2[1]:
                 #   print(t1, t2, temp_filtered)
@@ -36,7 +37,7 @@ class Encoding:
                         points.append(poi)
 
         return seg, points
-    
+
     def elp(P, X, K_seg, K_points, mode):
         for i in range(len(P)):
             if mode == "inv":
@@ -91,7 +92,7 @@ class Encoding:
                 last_seg = merged_segments[-1]
                 if last_seg[0][0] == seg[0][0] and last_seg[1][1] >= seg[0][1]:
                     merged_segments[-1] = [[last_seg[0][0], min(last_seg[0][1], seg[0][1])],
-                                        [last_seg[1][0], max(last_seg[1][1], seg[1][1])]]
+                                           [last_seg[1][0], max(last_seg[1][1], seg[1][1])]]
                 else:
                     merged_segments.append(seg)
 
@@ -103,7 +104,7 @@ class Encoding:
                 filtered_points.append(point)
 
         return merged_segments, filtered_points
-    
+
     def cod(X, P):
         T = Auxiliary.inter_T(X, P)
         seg, points = Encoding.seg_x(T, P)
