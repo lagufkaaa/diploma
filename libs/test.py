@@ -7,9 +7,9 @@ from shapely.ops import unary_union
 from itertools import product
 import pyclipper
 
-from encoding import Encoding
-from auxiliary import Auxiliary
-from nfp import NFP
+from libs.encoding import Encoding
+from libs.auxiliary import Auxiliary
+from libs.nfp import NFP
 
 class Test:
     def __init__(self):

@@ -1,15 +1,12 @@
 import ortools
 from ortools.linear_solver import pywraplp
 import numpy as np
-from nfp import NFP
+from libs.nfp import NFP
 from shapely.geometry import Polygon
-from encoding import Encoding
+from libs.encoding import Encoding
 
 def model_func(items, H, W, amount_rot, n):
     solver = pywraplp.Solver.CreateSolver('GLOP')  # Или 'SCIP' если нужны булевы/целые переменные
-
-    if not solver:
-        raise RuntimeError("Решатель не создан — проверь, установлен ли OR-Tools и выбрано ли правильное имя решателя.")
 
     h = W / n
     X_vals = [(h * i) for i in range(n + 1)]
@@ -41,7 +38,7 @@ def model_func(items, H, W, amount_rot, n):
                     total_used_area += area_val
                     print(f"Item {i} uses rotation {j}, X = {x_val:.2f}, Area = {area_val:.2f}")
 
-        print(f"\nОбщая использованная площадь: {total_used_area:.2f}")
+        print(f"Финальная использованная площадь: {total_used_area:.2f}")
     else:
         print("Решение не найдено")
     return solver

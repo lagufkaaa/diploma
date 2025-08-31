@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math as math
 
-from auxiliary import Auxiliary
+from libs.auxiliary import Auxiliary
 
 eps = 1e-10
 
