@@ -2,47 +2,80 @@ import numpy as np
 import ortools
 from ortools.linear_solver import pywraplp
 from shapely.geometry import Polygon
+from libs.nfp import NFP
+from libs.auxiliary import Auxiliary
+from libs.encoding import Encoding
 
-
-def model_func(items, H, W, amount_rot, n):
-    solver = pywraplp.Solver.CreateSolver('GLOP')  # Или 'SCIP' если нужны булевы/целые переменные
-
-    h = W / n
-    X_vals = [(h * i) for i in range(n + 1)]
-
-    amount_items = len(items)
+def model_func(items, W, H, R, N, S):
+    h = H/S
     M = 1e9
+    solver = pywraplp.Solver.CreateSolver('SCIP')
 
-    X = [[solver.NumVar(0.0, W, f'X_{i}_{j}') for j in range(amount_rot)] for i in range(amount_items)]
+    p = [[solver.BoolVar(f'p_{n}_{r}') for n in range(N)] for r in range(R)]
 
-    used = [[solver.BoolVar(f'used_{i}_{j}') for j in range(amount_rot)] for i in range(amount_items)]
+    for n in range(N):
+        solver.Add(sum(p[n][r] for r in range(R)) == 1)
 
-    for i in range(amount_items):
-        solver.Add(solver.Sum(used[i]) == 1)
+    deltas = [[[solver.BoolVar(f'deltas_{s}_{n}_{r}') for s in range(S)] for n in range(N)] for r in range(R)]
 
-    areas = [Polygon(item).area for item in items]
-    total_value = solver.Sum(used[i][j] * areas[i] for i in range(amount_items) for j in range(amount_rot))
-    opt = solver.Maximize(total_value)
+    for n in range(N):
+        solver.Add(sum(sum(deltas[s][n][r] for s in range(S)) for r in range(R)) == 1)
 
-    status = solver.Solve()
-    if status == pywraplp.Solver.OPTIMAL:
-        print("Найдено оптимальное решение")
+    x = [[solver.NumVar(0, W, f'x_{n}_{r}') for n in range(N)] for r in range(R)]
 
-        total_used_area = 0.0
-        for i in range(amount_items):
-            for j in range(amount_rot):
-                if used[i][j].solution_value() > 0.5:
-                    x_val = X[i][j].solution_value()
-                    area_val = areas[i]
-                    total_used_area += area_val
-                    print(f"Item {i} uses rotation {j}, X = {x_val:.2f}, Area = {area_val:.2f}")
+    x_min = []
+    x_max = []
+    y_min = []
+    y_max = []
 
-        print(f"Финальная использованная площадь: {total_used_area:.2f}")
-    else:
-        print("Решение не найдено")
-    return solver
+    for item in items: 
+        for i in range(len(item)): # TODO понять влияет ли это на алгоритм работы
+            if i != 0: 
+                item[i] -= item[0]
+        item[0] = np.array([0, 0])
 
+        x_min.append([])
+        x_max.append([])
+        y_min.append([])
+        y_max.append([]) 
+        for r in range(R):
+            # TODO ТУТ ДОЛЖЕН БЫТЬ УМНЫЙ ПОВОРОТ
+            xmin, xmax, ymin, ymax = Auxiliary.find_bounding_box_numpy(item)
+            x_min[i].append(xmin)
+            x_max[i].append(xmax)
+            y_min[i].append(ymin)
+            y_max[i].append(ymax) 
+        
+        # TODO если item[i] = item[j], то тогда просто дублировать из таблицы а не просчитывать по новой
 
+    for i in range(N):
+        for r in range(R):
+            solver.Add(x[i][r] >= -x_min[i][r])
+            solver.Add(x[i][r] + x_max[i][r] <= W + (1 - p[i][r])*M)
+
+    NFPs = [[[[None for _ in range(R)] for _ in range(N)] for _ in range(R)] for _ in range(N)]
+    Enc = [[[[None for _ in range(R)] for _ in range(N)] for _ in range(R)] for _ in range(N)]
+
+    for i in range(N):
+        for r1 in range(R):
+            for j in range(N): 
+                for r2 in range(R):
+                    if i == j: 
+                        NFPs[i][r1][j][r2] = None
+                        Enc[i][r1][j][r2] = None
+                    else: # TODO если item[i] = item[j], то тогда просто дублировать из таблицы а не просчитывать по новой
+                        onfp = NFP.outer_no_fit_polygon(Polygon(items[i]), Polygon(items[j]), items[i][0]) # TODO понять какую использовать ведущую точку
+                        NFPs[i][r1][j][r2] = onfp
+                        Enc[i][r1][j][r2] = Encoding.cod_model(H, S, onfp)
+    # TODO переделать кодировку с дискретной нарезки по х на у
+
+    # gammas = solver.BoolVar(((((f'gammas_{c}_{n1}_{r1}_{n2}_{r2}') for c in range(C[n1][r1][n2][r1]) for n1 in range(N)) for r1 in range(R)) for n2 in range(N)) for r2 in range(R))
+    
+    Area = [Polygon(item).area for item in items]
+
+    total_value = sum(p[i] * Area[i] for i in range(N))
+    solver.Maximize(total_value)
+    
 def parse(file_path):
     with open(file_path, 'r') as f:
         lines = f.readlines()

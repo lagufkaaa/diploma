@@ -66,3 +66,18 @@ class Auxiliary:
 
             # print(p, j)
         return proj
+    
+    def find_bounding_box_numpy(points):
+        points_array = np.array(points)
+        xs = points_array[:, 0]
+        ys = points_array[:, 1]
+        
+        return {
+            'min_x': np.min(xs),
+            'max_x': np.max(xs),
+            'min_y': np.min(ys),
+            'max_y': np.max(ys),
+        }
+    
+    def reflect_over_yx(polygon):
+        return [[point[1], point[0]] for point in polygon]

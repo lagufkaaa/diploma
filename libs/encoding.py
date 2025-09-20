@@ -1,6 +1,6 @@
 import math as math
 import numpy as np
-
+from libs.nfp import NFP
 from libs.auxiliary import Auxiliary
 
 eps = 1e-10
@@ -8,7 +8,7 @@ eps = 1e-10
 
 class Encoding:
     def __init__(self):
-        pass
+        pass        
 
     def seg_x(T, P):
         seg = []
@@ -118,3 +118,16 @@ class Encoding:
         K_seg, K_points = Encoding.merge_and_clean_segments(K_seg, K_points)
 
         return K_seg, K_points
+    
+    def cod_model(H, S, onfp):
+        newonfp = NFP.polygon_to_path(onfp)
+
+        P = Auxiliary.reflect_over_yx(newonfp)
+        h = H/S
+        X = [(h * i) for i in range(S + 1)]
+        cod_seg, cod_points = Encoding.cod(X, P)
+        cod_points = Auxiliary.reflect_over_yx(cod_points)
+        for seg in cod_seg:
+            seg = Auxiliary.reflect_over_yx(seg)
+
+        return cod_seg, cod_points
