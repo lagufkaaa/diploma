@@ -1,2 +1,2 @@
-A = [i for i in range(5)]
-print(A)
+a = 1.0
+print(round(a))
