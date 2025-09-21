@@ -21,6 +21,13 @@ def model_func(items, W, H, R, N, S):
     for n in range(N):
         solver.Add(sum(sum(deltas[s][n][r] for s in range(S)) for r in range(R)) == 1)
 
+    str = [[(solver.IntVar(0, S, f's_{n}_{r}')) for n in range(N)] for r in range(R)]
+    for n in range(N):
+        for r in range(R):
+            for s in range(S):
+                solver.Add(str[r][n] == s).OnlyEnforceIf(deltas[s][n][r] == 1)
+
+
     x = [[solver.NumVar(0, W, f'x_{n}_{r}') for n in range(N)] for r in range(R)]
 
     x_min = []
@@ -55,6 +62,7 @@ def model_func(items, W, H, R, N, S):
 
     NFPs = [[[[None for _ in range(R)] for _ in range(N)] for _ in range(R)] for _ in range(N)]
     Enc = [[[[None for _ in range(R)] for _ in range(N)] for _ in range(R)] for _ in range(N)]
+    C = [[[[None for _ in range(R)] for _ in range(N)] for _ in range(R)] for _ in range(N)]
 
     for i in range(N):
         for r1 in range(R):
@@ -67,10 +75,20 @@ def model_func(items, W, H, R, N, S):
                         onfp = NFP.outer_no_fit_polygon(Polygon(items[i]), Polygon(items[j]), items[i][0]) # TODO понять какую использовать ведущую точку
                         NFPs[i][r1][j][r2] = onfp
                         Enc[i][r1][j][r2] = Encoding.cod_model(H, S, onfp)
-    # TODO переделать кодировку с дискретной нарезки по х на у
+                        # C[i][r1][j][r2] = # TODO памагите
 
     # gammas = solver.BoolVar(((((f'gammas_{c}_{n1}_{r1}_{n2}_{r2}') for c in range(C[n1][r1][n2][r1]) for n1 in range(N)) for r1 in range(R)) for n2 in range(N)) for r2 in range(R))
-    
+
+    # TODO точно ли все циклы указаны??? 
+
+    # for i in range(N):
+    #     for r1 in range(R):
+    #         for j in range(i + 1, N): # TODO точно ли i + 1
+    #             for r2 in range(R):
+    #                 solver.Add(x[i][r1] <= x[j][r2] -  b[i][r1][j][r2][c] + gammas[i][r1][j][r2][c]*M + (1 - deltas[s[i]][i][r1])*M + (1 - deltas[s[j]][j][r2])*M + (1 - p[i][r1])*M + (1 - p[j][r2])*M)
+    #                 solver.Add(x[i][r1] >= x[j][r2] -  a[i][r1][j][r2][c] - (1 - gammas[i][r1][j][r2][c])*M - (1 - deltas[s[i]][i][r1])*M - (1 - deltas[s[j]][j][r2])*M - (1 - p[i][r1])*M - (1 - p[j][r2])*M)
+
+
     Area = [Polygon(item).area for item in items]
 
     total_value = sum(p[i] * Area[i] for i in range(N))
