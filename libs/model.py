@@ -63,11 +63,21 @@ def model_func(items, W, H, R, N, S):
     NFPs = [[[[None for _ in range(R)] for _ in range(N)] for _ in range(R)] for _ in range(N)]
     Enc = [[[[None for _ in range(R)] for _ in range(N)] for _ in range(R)] for _ in range(N)]
     C = [[[[None for _ in range(R)] for _ in range(N)] for _ in range(R)] for _ in range(N)]
+    a = []
+    b = []
 
     for i in range(N):
+        a.append([])
+        b.append([])
         for r1 in range(R):
+            a[i].append([])
+            b[i].append([])
             for j in range(N): 
+                a[i][r1].append([])
+                b[i][r1].append([])
                 for r2 in range(R):
+                    a[i][r1][j].append([])
+                    b[i][r1][j].append([])
                     if i == j: 
                         NFPs[i][r1][j][r2] = None
                         Enc[i][r1][j][r2] = None
@@ -75,24 +85,67 @@ def model_func(items, W, H, R, N, S):
                         onfp = NFP.outer_no_fit_polygon(Polygon(items[i]), Polygon(items[j]), items[i][0]) # TODO понять какую использовать ведущую точку
                         NFPs[i][r1][j][r2] = onfp
                         Enc[i][r1][j][r2] = Encoding.cod_model(H, S, onfp)
-                        # C[i][r1][j][r2] = # TODO памагите
+                        C[i][r1][j][r2] = sum(1 for point in Enc[i][r1][j][r2][0] if point[1] == abs(s[i][r1] - s[j][r2])*h)/2 + sum(1 for point in Enc[i][r1][j][r2][1] if point[1] == abs(s[i][r1] - s[j][r2])*h) # TODO памагите
+                        for seg in Enc[i][r1][j][r2][0]:
+                            if seg[1] == abs(s[i][r1] - s[j][r2]) * h: 
+                                a[i][r1][j][r2].append(seg[0])
+                                b[i][r1][j][r2].append(seg[1])
+                        for point in Enc[i][r1][j][r2][1]:
+                            if point[1] == abs(s[i][r1] - s[j][r2]) * h:
+                                a[i][r1][j][r2].append(point)
+                                b[i][r1][j][r2].append(point)
 
-    # gammas = solver.BoolVar(((((f'gammas_{c}_{n1}_{r1}_{n2}_{r2}') for c in range(C[n1][r1][n2][r1]) for n1 in range(N)) for r1 in range(R)) for n2 in range(N)) for r2 in range(R))
+    gammas = [
+            [
+                [
+                    [
+                        [
+                            solver.BoolVar(f'gammas_{c}_{n1}_{r1}_{n2}_{r2}')
+                            for c in range(C[n1][r1][n2][r2])  # исправлено r1 на r2
+                        ]
+                        for n2 in range(N)
+                    ]
+                    for r2 in range(R)
+                ]
+                for n1 in range(N)
+            ]
+            for r1 in range(R)
+        ]
+
 
     # TODO точно ли все циклы указаны??? 
 
-    # for i in range(N):
-    #     for r1 in range(R):
-    #         for j in range(i + 1, N): # TODO точно ли i + 1
-    #             for r2 in range(R):
-    #                 solver.Add(x[i][r1] <= x[j][r2] -  b[i][r1][j][r2][c] + gammas[i][r1][j][r2][c]*M + (1 - deltas[s[i]][i][r1])*M + (1 - deltas[s[j]][j][r2])*M + (1 - p[i][r1])*M + (1 - p[j][r2])*M)
-    #                 solver.Add(x[i][r1] >= x[j][r2] -  a[i][r1][j][r2][c] - (1 - gammas[i][r1][j][r2][c])*M - (1 - deltas[s[i]][i][r1])*M - (1 - deltas[s[j]][j][r2])*M - (1 - p[i][r1])*M - (1 - p[j][r2])*M)
+    for i in range(N):
+        for r1 in range(R):
+            for j in range(i + 1, N): # TODO точно ли i + 1
+                for r2 in range(R):
+                    for c in range(C[i][r1][j][r2]):
+                        solver.Add(x[i][r1] <= x[j][r2] -  b[i][r1][j][r2][c] + gammas[i][r1][j][r2][c]*M + (1 - deltas[s[i]][i][r1])*M + (1 - deltas[s[j]][j][r2])*M + (1 - p[i][r1])*M + (1 - p[j][r2])*M)
+                        solver.Add(x[i][r1] >= x[j][r2] -  a[i][r1][j][r2][c] - (1 - gammas[i][r1][j][r2][c])*M - (1 - deltas[s[i]][i][r1])*M - (1 - deltas[s[j]][j][r2])*M - (1 - p[i][r1])*M - (1 - p[j][r2])*M)
 
 
     Area = [Polygon(item).area for item in items]
 
     total_value = sum(p[i] * Area[i] for i in range(N))
     solver.Maximize(total_value)
+
+    status = solver.Solve()
+
+    if status == pywraplp.Solver.OPTIMAL:
+        results = {
+            'p': [[p[i][r].solution_value() for r in range(R)] for i in range(N)],
+            'x': [[x[i][r].solution_value() for r in range(R)] for i in range(N)],
+            's': [[str[i][r].solution_value() for r in range(R)] for i in range(N)],
+            'objective_value': solver.Objective().Value(),
+            'status': 'OPTIMAL'
+        }
+    else:
+        results = {
+            'status': 'NOT_OPTIMAL',
+            'objective_value': None
+        }
+    
+    return results
     
 def parse(file_path):
     with open(file_path, 'r') as f:

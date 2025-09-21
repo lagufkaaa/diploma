@@ -130,4 +130,4 @@ class Encoding:
         for seg in cod_seg:
             seg = Auxiliary.reflect_over_yx(seg)
 
-        return cod_seg, cod_points
+        return [cod_seg, cod_points]
