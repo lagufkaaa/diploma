@@ -1,18 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
   <component name="ChangeListManager">
     <list default="true" id="769f098e-2c1b-4ab5-8f29-51b2615fb31c" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/indexLayout.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/projectSettingsUpdater.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/libs/auxiliary.py" beforeDir="false" afterPath="$PROJECT_DIR$/libs/auxiliary.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/libs/encoding.py" beforeDir="false" afterPath="$PROJECT_DIR$/libs/encoding.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/libs/model.py" beforeDir="false" afterPath="$PROJECT_DIR$/libs/model.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/libs/nfp.py" beforeDir="false" afterPath="$PROJECT_DIR$/libs/nfp.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/libs/polygon.py" beforeDir="false" afterPath="$PROJECT_DIR$/libs/polygon.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/libs/test.py" beforeDir="false" afterPath="$PROJECT_DIR$/libs/test.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -66,7 +59,7 @@
       <option name="presentableId" value="Default" />
       <updated>1756608459915</updated>
       <workItem from="1756608461906" duration="171000" />
-      <workItem from="1756608677387" duration="320000" />
+      <workItem from="1756608677387" duration="2323000" />
     </task>
     <servers />
   </component>

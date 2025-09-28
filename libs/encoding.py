@@ -129,5 +129,7 @@ class Encoding:
         cod_points = Auxiliary.reflect_over_yx(cod_points)
         for seg in cod_seg:
             seg = Auxiliary.reflect_over_yx(seg)
+        
+        # cod_seg, cod_points = Encoding.merge_and_clean_segments(cod_seg, cod_points)
 
         return [cod_seg, cod_points]

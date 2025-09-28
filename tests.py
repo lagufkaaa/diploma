@@ -45,17 +45,18 @@ from libs.auxiliary import Auxiliary
 
 # Test.test_encoding(newonfp, n=25)
 
-items = parse(".\\data_car_mats\\car_mats_1.txt")
-# for item in items[:5]:
+items = parse(".\\data_car_mats\\test.txt")
+# items = parse(".\\data_car_mats\\car_mats_1.txt")
+# for item in items:
 #     Test.test_vis(item)
 # Test.test_vis(items[0])
 
-mdl_items = items[:10]
+mdl_items = items
 N = len(mdl_items)
-W=200000
-H=200000
+W=100
+H=100
 R=1
-S=30
+S=2
 
 start_time = time.time()
 result = model_func(mdl_items, W, H, R, N, S)                                                         
@@ -64,6 +65,9 @@ print(f"Время выполнения: {end_time - start_time:.2f} секун�
 print(result)
 
 visualize_solution(result, mdl_items, H, S, W)
+
+
+
 # onfp = NFP.outer_no_fit_polygon(Polygon(items[0]), Polygon(items[5]), items[0][0])
 # Test.test_nfp(Polygon(items[0]), Polygon(items[5]), onfp, items[0][0])
 

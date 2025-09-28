@@ -5,6 +5,7 @@ from shapely.geometry import Polygon
 from libs.nfp import NFP
 from libs.auxiliary import Auxiliary
 from libs.encoding import Encoding
+from libs.test import Test
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -19,19 +20,19 @@ def model_func(items, W, H, R, N, S):
     p = [[solver.BoolVar(f'p_{n}_{r}') for r in range(R)] for n in range(N)]
 
     for n in range(N):
-        solver.Add(sum(p[n][r] for r in range(R)) == 1)
+        solver.Add(sum(p[n][r] for r in range(R)) <= 1)
 
     deltas = [[[solver.BoolVar(f'deltas_{s}_{n}_{r}') for r in range(R)] for n in range(N)] for s in range(S)]
 
     for n in range(N):
-        solver.Add(sum(sum(deltas[s][n][r] for s in range(S)) for r in range(R)) == 1)
+        solver.Add(sum(sum(deltas[s][n][r] for s in range(S)) for r in range(R)) <= 1)
 
     str_vars = [[solver.IntVar(0, S, f's_{r}_{n}') for n in range(N)] for r in range(R)]
     for n in range(N):
         for r in range(R):
-            for s in range(S):
-                solver.Add(str_vars[r][n] >= s - M * (1 - deltas[s][n][r]))
-                solver.Add(str_vars[r][n] <= s + M * (1 - deltas[s][n][r]))
+            # str_vars[r][n] должно равняться s, для которого deltas[s][n][r] = 1
+            # Создаем выражение: str_vars[r][n] = sum(s * deltas[s][n][r] for s in range(S))
+            solver.Add(str_vars[r][n] == sum(s * deltas[s][n][r] for s in range(S)))
 
 
     x = [[solver.NumVar(0, W, f'x_{r}_{n}') for r in range(R)] for n in range(N)]
@@ -75,7 +76,7 @@ def model_func(items, W, H, R, N, S):
     for i in range(N):
         for r in range(R):
             solver.Add(x[i][r] >= -x_min[i][r])
-            solver.Add(x[i][r] + x_max[i][r] <= W + (1 - p[i][r])*M)
+            solver.Add(x[i][r] + x_max[i][r] <= (W + (1 - p[i][r])*M))
 
     NFPs = [[[[None for _ in range(R)] for _ in range(N)] for _ in range(R)] for _ in range(N)]
     Enc = [[[[None for _ in range(R)] for _ in range(N)] for _ in range(R)] for _ in range(N)]
@@ -96,7 +97,7 @@ def model_func(items, W, H, R, N, S):
                         NFPs[i][r1][j][r2] = onfp
                         Enc[i][r1][j][r2] = Encoding.cod_model(H, S, onfp)
 
-                        # print(Enc[i][r1][j][r2])
+                        print(Enc[i][r1][j][r2])
                         
                         # Создаем промежуточные переменные
                         diff_var = solver.IntVar(-S, S, f'diff_{i}_{r1}_{j}_{r2}')
@@ -114,20 +115,26 @@ def model_func(items, W, H, R, N, S):
                         
                         target_value = abs_diff_var * h
                         
-                        C[i][r1][j][r2] = round(sum(1 for point in Enc[i][r1][j][r2][0][0] if point[1] == target_value) / 2 + 
-                                        sum(1 for point in Enc[i][r1][j][r2][1] if point[1] == target_value))
+                        if Enc[i][r1][j][r2][0] != []:
+                            C[i][r1][j][r2] = round(sum(1 for point in Enc[i][r1][j][r2][0][0] if point[1] == target_value) / 2 
+                                                    + sum(1 for point in Enc[i][r1][j][r2][1] if point[1] == target_value)
+                                                    )
+                            
+                            for seg in Enc[i][r1][j][r2][0][0]:
+                                if seg[1] == target_value: 
+                                    a[i][r1][j][r2].append(seg[0])
+                                    b[i][r1][j][r2].append(seg[1])
+                            
+                            for point in Enc[i][r1][j][r2][1]:
+                                if point[1] == target_value:
+                                    a[i][r1][j][r2].append(point[0])
+                                    b[i][r1][j][r2].append(point[1]) 
+
+                        else:
+                            C[i][r1][j][r2] = 0
                         
                         # print(C[i][r1][j][r2])
                         
-                        for seg in Enc[i][r1][j][r2][0][0]:
-                            if seg[1] == target_value: 
-                                a[i][r1][j][r2].append(seg[0])
-                                b[i][r1][j][r2].append(seg[1])
-                        
-                        for point in Enc[i][r1][j][r2][1]:
-                            if point[1] == target_value:
-                                a[i][r1][j][r2].append(point[0])  # вероятно point[0] вместо point
-                                b[i][r1][j][r2].append(point[1])  # вероятно point[1] вместо point
 
     gammas = [
         [
@@ -153,55 +160,27 @@ def model_func(items, W, H, R, N, S):
             for j in range(i + 1, N): # TODO точно ли i + 1
                 for r2 in range(R):
                     for c in range(C[i][r1][j][r2]):
-                        # Создаем булевы переменные для условий str_vars[r1][i] == s
-                        str_eq_vars_i = []
-                        str_eq_vars_j = []
-                        for s in range(S):
-                            # Для str_vars[r1][i]
-                            eq_var_i = solver.BoolVar(f'str_eq_i_{i}_{r1}_{s}')
-                            
-                            # Big-M constraints вместо OnlyEnforceIf
-                            # Если eq_var_i = 1, то str_vars[r1][i] == s
-                            solver.Add(str_vars[r1][i] >= s - M * (1 - eq_var_i))
-                            solver.Add(str_vars[r1][i] <= s + M * (1 - eq_var_i))
-                            
-                            # Если eq_var_i = 0, то str_vars[r1][i] != s (обеспечивается другими eq_var_i для других s)
-                            # Но нужно обеспечить, что только один eq_var_i может быть равен 1
-                            str_eq_vars_i.append(eq_var_i)
-                            
-                            # Для str_vars[r2][j]
-                            eq_var_j = solver.BoolVar(f'str_eq_j_{j}_{r2}_{s}')
-                            
-                            # Аналогично для j
-                            solver.Add(str_vars[r2][j] >= s - M * (1 - eq_var_j))
-                            solver.Add(str_vars[r2][j] <= s + M * (1 - eq_var_j))
-                            
-                            str_eq_vars_j.append(eq_var_j)
+                        solver.Add(x[i][r1] - x[j][r2] >= -M * (1 - gammas[i][r1][j][r2][c]))
 
-                        # Добавляем ограничение, что только одна переменная eq_var_i может быть равна 1
-                        solver.Add(sum(str_eq_vars_i) == 1)
-                        solver.Add(sum(str_eq_vars_j) == 1)
-                        # Теперь создаем выражения для deltas
-                        deltas_expr_i = 0
-                        deltas_expr_j = 0
+                        epsilon = 1e-5
+                        solver.Add(x[j][r2] - x[i][r1] + epsilon <= M * gammas[i][r1][j][r2][c])
 
-                        for s in range(S):
-                            # Линеаризация произведения для i
-                            prod_var_i = solver.BoolVar(f'prod_i_{i}_{r1}_{s}')
-                            solver.Add(prod_var_i <= deltas[s][i][r1])
-                            solver.Add(prod_var_i <= str_eq_vars_i[s])
-                            solver.Add(prod_var_i >= deltas[s][i][r1] + str_eq_vars_i[s] - 1)
-                            deltas_expr_i += prod_var_i
-                            
-                            # Линеаризация произведения для j
-                            prod_var_j = solver.BoolVar(f'prod_j_{j}_{r2}_{s}')
-                            solver.Add(prod_var_j <= deltas[s][j][r2])
-                            solver.Add(prod_var_j <= str_eq_vars_j[s])
-                            solver.Add(prod_var_j >= deltas[s][j][r2] + str_eq_vars_j[s] - 1)
-                            deltas_expr_j += prod_var_j
-
-                        solver.Add(x[i][r1] <= x[j][r2] -  b[i][r1][j][r2][c] + gammas[i][r1][j][r2][c]*M + (1 - deltas_expr_i)*M + (1 - deltas_expr_j)*M + (1 - p[i][r1])*M + (1 - p[j][r2])*M)
-                        solver.Add(x[i][r1] >= x[j][r2] -  a[i][r1][j][r2][c] - (1 - gammas[i][r1][j][r2][c])*M - (1 - deltas_expr_i)*M - (1 - deltas_expr_j)*M - (1 - p[i][r1])*M - (1 - p[j][r2])*M)
+                    delta_i_active = sum(deltas[s][i][r1] for s in range(S))
+                    delta_j_active = sum(deltas[s][j][r2] for s in range(S))
+                    
+                    solver.Add(x[i][r1] <= x[j][r2] - b[i][r1][j][r2][c] + 
+                              gammas[i][r1][j][r2][c] * M + 
+                              (1 - delta_i_active) * M + 
+                              (1 - delta_j_active) * M + 
+                              (1 - p[i][r1]) * M + 
+                              (1 - p[j][r2]) * M)
+                    
+                    solver.Add(x[i][r1] >= x[j][r2] - a[i][r1][j][r2][c] - 
+                              (1 - gammas[i][r1][j][r2][c]) * M - 
+                              (1 - delta_i_active) * M - 
+                              (1 - delta_j_active) * M - 
+                              (1 - p[i][r1]) * M - 
+                              (1 - p[j][r2]) * M)
 
 
     Area = [Polygon(item).area for item in items]
@@ -264,28 +243,50 @@ def parse(file_path):
                 vertices.append([x, y])
                 i += 1
 
-            shape = np.array(vertices)
-            for _ in range(quantity):
-                items.append(shape)
+            # Нормализация по первой точке
+            if len(vertices) > 0:
+                first_point = vertices[0].copy()  # Сохраняем первую точку
+                normalized_vertices = []
+                for vertex in vertices:
+                    # Вычитаем координаты первой точки из всех вершин
+                    normalized_vertex = [vertex[0] - first_point[0], vertex[1] - first_point[1]]
+                    normalized_vertices.append(normalized_vertex)
+                
+                shape = np.array(normalized_vertices)
+                for _ in range(quantity):
+                    items.append(shape)
 
         else:
             i += 1
 
     return items
 
+
 def visualize_solution(solution, items, H, S, W=200000, all_items=None):
     """
     Визуализирует решение упаковки фигур
     
     Args:
-        solution: словарь с решением {'p', 'x', 's', ...}
-        items: список фигур, которые БЫЛИ упакованы
+        solution: словарь с решением {'p', 'x', 's', ...} или {'status': 'NOT_OPTIMAL'}
+        items: список фигур, которые пытались упаковать
         H: общая высота области
         S: количество строчек
         W: ширина области
         all_items: все доступные фигуры (опционально)
     """
     fig, ax = plt.subplots(figsize=(16, 12))
+    
+    # Проверяем, есть ли валидное решение
+    if solution.get('status') in ['NOT_OPTIMAL', 'INFEASIBLE'] or solution.get('objective_value') is None:
+        ax.text(0.5, 0.5, f'Решение не найдено\nСтатус: {solution.get("status", "UNKNOWN")}', 
+                transform=ax.transAxes, fontsize=16, ha='center', va='center',
+                bbox=dict(facecolor='red', alpha=0.3))
+        ax.set_xlim(0, W)
+        ax.set_ylim(0, H)
+        ax.set_title('Решение не найдено')
+        plt.tight_layout()
+        plt.show()
+        return
     
     # Вычисляем высоту одной строчки
     h = H / S
@@ -294,7 +295,7 @@ def visualize_solution(solution, items, H, S, W=200000, all_items=None):
     packed_items = items  # фигуры, которые были переданы на упаковку
     all_available_items = all_items if all_items is not None else items
     
-    print(f"Упаковано фигур: {len(packed_items)} из {len(all_available_items)} доступных")
+    print(f"Упаковано фигур: {len([p for p in solution['p'] if p[0] == 1.0])} из {len(all_available_items)} доступных")
     print(f"Параметры: H={H}, S={S}, h={h:.1f}, W={W}")
     
     # Создаем коллекции для упакованных и неупакованных фигур
@@ -305,12 +306,11 @@ def visualize_solution(solution, items, H, S, W=200000, all_items=None):
     
     # Визуализируем упакованные фигуры
     for i, item in enumerate(packed_items):
-        if i >= len(solution['x']) or i >= len(solution['s']):
+        if i >= len(solution['x']) or i >= len(solution['s']) or i >= len(solution['p']):
             continue
             
-        # Проверяем, был ли предмет actually упакован (p[i][r] == 1)
-        # В вашем случае p[i][0] == 1.0 означает, что предмет упакован
-        if i < len(solution['p']) and solution['p'][i][0] == 1.0:
+        # Проверяем, был ли предмет упакован (p[i][0] == 1.0)
+        if solution['p'][i][0] == 1.0:
             x_pos = solution['x'][i][0]
             s_val = int(round(solution['s'][i][0]))
             y_pos = s_val * h
@@ -329,17 +329,31 @@ def visualize_solution(solution, items, H, S, W=200000, all_items=None):
             # Подписываем упакованные фигуры
             ax.text(x_pos, y_pos + h/2, f'{i}', fontweight='bold',
                    bbox=dict(facecolor='white', alpha=0.8))
+        else:
+            # Фигура не упакована - добавляем в список неупакованных
+            x_pos = W * 1.1  # справа от рабочей области
+            y_pos = (len(unpacked_patches) % 10) * h * 2  # вертикальное расположение
+            
+            polygon_points = []
+            for point in item:
+                px = point[0] + x_pos
+                py = point[1] + y_pos
+                polygon_points.append([px, py])
+            
+            polygon = patches.Polygon(polygon_points, closed=True, alpha=0.3, 
+                                     edgecolor='red', facecolor='lightgray')
+            unpacked_patches.append(polygon)
+            unpacked_colors.append(i)
+            
+            ax.text(x_pos, y_pos + h/2, f'{i} (не упак.)', fontweight='bold',
+                   color='red', bbox=dict(facecolor='white', alpha=0.8))
     
-    # Визуализируем неупакованные фигуры (если переданы все доступные)
+    # Визуализируем оставшиеся неупакованные фигуры (если переданы все доступные)
     if all_available_items is not None and len(all_available_items) > len(packed_items):
-        unpacked_count = len(all_available_items) - len(packed_items)
-        print(f"Не упаковано фигур: {unpacked_count}")
-        
-        # Размещаем неупакованные фигуры справа за границей области
         for i in range(len(packed_items), len(all_available_items)):
             item = all_available_items[i]
             x_pos = W * 1.1  # справа от рабочей области
-            y_pos = (i % 10) * h * 2  # вертикальное расположение
+            y_pos = (len(unpacked_patches) % 10) * h * 2  # вертикальное расположение
             
             polygon_points = []
             for point in item:
@@ -380,7 +394,9 @@ def visualize_solution(solution, items, H, S, W=200000, all_items=None):
     ax.set_xlabel('X координата')
     ax.set_ylabel('Y координата')
     
-    title = f'Упаковка: {len(packed_patches)} из {len(all_available_items)} фигур'
+    packed_count = len(packed_patches)
+    total_count = len(all_available_items)
+    title = f'Упаковка: {packed_count} из {total_count} фигур'
     if unpacked_patches:
         title += f' ({len(unpacked_patches)} не упаковано)'
     ax.set_title(title)
@@ -397,12 +413,15 @@ def visualize_solution(solution, items, H, S, W=200000, all_items=None):
     ax.legend(handles=legend_elements, loc='upper right')
     
     # Информация
+    objective_value = solution.get('objective_value', 0)
+    efficiency = (objective_value / (W * H)) * 100 if W * H > 0 else 0
+    
     info_text = f'''Параметры упаковки:
 Область: {W} × {H}
 Строчек: {S} (высота: {h:.1f})
-Упаковано: {len(packed_patches)} фигур
-Площадь: {solution["objective_value"]:.0f}
-Эффективность: {solution["objective_value"]/(W*H)*100:.1f}%'''
+Упаковано: {packed_count} фигур
+Площадь: {objective_value:.0f}
+Эффективность: {efficiency:.1f}%'''
     
     ax.text(W * 1.01, H * 0.7, info_text, fontsize=9, 
             bbox=dict(facecolor='lightblue', alpha=0.7))
