@@ -92,12 +92,21 @@ def model_func(items, W, H, R, N, S):
                         NFPs[i][r1][j][r2] = None
                         Enc[i][r1][j][r2] = None
                         C[i][r1][j][r2] = None
+                        print(i, r1, j, r2)
                     else:
+                        print(i, r1, j, r2)
                         onfp = NFP.outer_no_fit_polygon(Polygon(items[i]), Polygon(items[j]), items[i][0])
                         NFPs[i][r1][j][r2] = onfp
+                        print('m1', type(onfp))
+                        # Test.test_nfp(Polygon(items[i]), Polygon(items[j]), onfp, items[i][0])
+                        
                         Enc[i][r1][j][r2] = Encoding.cod_model(H, S, onfp)
-
-                        print(Enc[i][r1][j][r2])
+                        
+                        print('m2', type(onfp))
+                        
+                        Test.test_model_encoding(Enc[i][r1][j][r2], n = S)
+                        
+                        # print(Enc[i][r1][j][r2])
                         
                         # Создаем промежуточные переменные
                         diff_var = solver.IntVar(-S, S, f'diff_{i}_{r1}_{j}_{r2}')

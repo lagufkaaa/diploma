@@ -2,6 +2,7 @@ import math as math
 import numpy as np
 from libs.nfp import NFP
 from libs.auxiliary import Auxiliary
+import shapely.geometry as geom
 
 eps = 1e-10
 
@@ -120,16 +121,21 @@ class Encoding:
         return K_seg, K_points
     
     def cod_model(H, S, onfp):
+        print('1', type(onfp))
         newonfp = NFP.polygon_to_path(onfp)
+        assert isinstance(onfp, geom.Polygon), f"polygon1 должен быть Polygon, но получен {type(onfp).__name__}"
+        print('2', type(newonfp))
 
         P = Auxiliary.reflect_over_yx(newonfp)
         h = H/S
         X = [(h * i) for i in range(S + 1)]
         cod_seg, cod_points = Encoding.cod(X, P)
-        cod_points = Auxiliary.reflect_over_yx(cod_points)
-        for seg in cod_seg:
-            seg = Auxiliary.reflect_over_yx(seg)
+        # cod_points = Auxiliary.reflect_over_yx(cod_points)
+        # for seg in cod_seg:
+        #     seg = Auxiliary.reflect_over_yx(seg)
         
-        # cod_seg, cod_points = Encoding.merge_and_clean_segments(cod_seg, cod_points)
+        cod_seg, cod_points = Encoding.merge_and_clean_segments(cod_seg, cod_points)
 
+        print('3', type(onfp))
+        print('4', type(newonfp))
         return [cod_seg, cod_points]

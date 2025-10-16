@@ -1,5 +1,6 @@
 import math as math
 import numpy as np
+import ast
 
 
 class Auxiliary:
@@ -81,5 +82,34 @@ class Auxiliary:
     
     def reflect_over_yx(polygon):
         return [[point[1], point[0]] for point in polygon]
+    
+    def extract_points(enc):
+        # 1) если пришла строка — распарсить
+        if isinstance(enc, str):
+            enc = ast.literal_eval(enc)
+
+        pts = []
+
+        # 2) рекурсивно обойти структуру и собрать пары [x, y]
+        stack = [enc]
+        while stack:
+            x = stack.pop()
+            if x is None:
+                continue
+            if isinstance(x, (list, tuple)):
+                # чистая точка [x, y]
+                if len(x) == 2 and all(isinstance(v, (int, float)) for v in x):
+                    pts.append([float(x[0]), float(x[1])])
+                else:
+                    # возможно, тут отрезки [[x1,y1],[x2,y2]] или просто вложенные списки
+                    stack.extend(x)
+
+        P = np.array(pts, dtype=float)
+
+        if P.ndim != 2 or P.shape[1] != 2 or P.size == 0:
+            raise ValueError(f"Не удалось извлечь точки вида (n,2). Получено: shape={getattr(P,'shape',None)}")
+
+        return P
+
     
     

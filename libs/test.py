@@ -6,9 +6,12 @@ from itertools import product
 from shapely.geometry import Polygon, LineString, MultiPolygon
 from shapely.ops import unary_union
 
+import shapely.geometry as geom
+
 from libs.auxiliary import Auxiliary
 from libs.encoding import Encoding
 
+from libs.nfp import NFP
 
 class Test:
     def __init__(self):
@@ -130,6 +133,126 @@ class Test:
         plt.legend()
         plt.grid(True)
         plt.show()
+        
+    def test_model_encoding(onfp, n=None, h=None):
+        # assert isinstance(onfp, geom.Polygon), f"polygon1 должен быть Polygon, но получен {type(onfp).__name__}"
+        # P = NFP.polygon_to_path(onfp)
+        print('t-1', type(onfp))
+        print('t0', type(P))
+        
+        P = onfp
+        print('t1', type(onfp))
+        print('t2', type(P))
+        polygon = np.vstack([P, P[0]])
+
+        plt.plot(polygon[:, 0], polygon[:, 1], marker='o', linestyle='-')
+        plt.xlabel("X")
+        plt.ylabel("Y")
+        plt.title("Изначальный нфп")
+        plt.grid(True)
+        plt.show()
+        
+        
+
+        x0 = min([P[i][0] for i in range(len(P))])
+        # x0 = -1
+        # xn = max([P[i][0] for i in range(len(P))])
+        # xn = 10
+        xn = max([P[i][0] for i in range(len(P))])
+        # print("xn =",  xn)
+        if n:
+            h = (xn - x0) / n
+        else:
+            n = int((xn - x0) / h)
+
+        X = [(x0 + h * i) for i in range(n + 1)]
+
+        T = Auxiliary.inter_T(X, P)
+
+        # # Отрисовка многоугольника
+        # plt.plot(polygon[:, 0], polygon[:, 1], color='gray', marker='o', linestyle='-', alpha=1, zorder=1)
+
+        # # Отрисовка вертикальной линии x = x1
+        # for x1 in X:
+        #   plt.axvline(x=x1, color='red', linestyle='--', alpha=0.3, zorder=2)
+
+        # # Отрисовка точек пересечения поверх графика с увеличенным радиусом и полупрозрачностью
+        # if T:
+        #     T = np.array(T)
+        #     plt.scatter(T[:, 0], T[:, 1], color='red', s=60, alpha=0.5, zorder=3)
+
+        # plt.xlabel("X")
+        # plt.ylabel("Y")
+        # plt.title("Многоугольник с точками пересечения")
+        # plt.legend()
+        # plt.grid(True)
+        # plt.show()
+
+        # # print(P)
+
+        # seg, points = seg_x(T, P)
+
+        # if seg:
+        #   for segment in seg:
+        #       plt.plot([segment[0][0], segment[1][0]], [segment[0][1], segment[1][1]], color='blue', linestyle='-', linewidth=2, alpha=0.7)
+        #   for point in points:
+        #     plt.scatter(point[0], point[1], color='blue', alpha=0.7, s=60)
+        #   plt.xlabel("X")
+        #   plt.ylabel("Y")
+        #   plt.title("Отрезки на основе точек пересечения")
+        #   plt.grid(True)
+        #   plt.show()
+
+        # proj = projections(X, P)
+
+        # # Отрисовка многоугольника
+        # plt.plot(polygon[:, 0], polygon[:, 1], color='gray', marker='o', linestyle='-', alpha=1, zorder=1)
+
+        # # Отрисовка вертикальной линии x = x1
+        # for x1 in X:
+        #   plt.axvline(x=x1, color='red', linestyle='--', alpha=0.3, zorder=2)
+
+        # if proj:
+        #     proj = np.array(proj)
+        #     plt.scatter(proj[:, 0], proj[:, 1], color='red', s=60, alpha=0.5, zorder=3)
+
+        # plt.xlabel("X")
+        # plt.ylabel("Y")
+        # plt.title("Многоугольник с точками пересечения")
+        # plt.legend()
+        # plt.grid(True)
+        # plt.show()
+        
+        print('t3', type(onfp))
+
+        cod_seg, cod_points = Encoding.cod_model(xn, n, P)
+
+        # Отрисовка многоугольника
+        plt.plot(polygon[:, 0], polygon[:, 1], color='gray', marker='o', linestyle='-', alpha=1, zorder=1)
+
+        # Отрисовка вертикальной линии x = x1
+        for x1 in X:
+            plt.axvline(x=x1, color='red', linestyle='--', alpha=0.3, zorder=2)
+
+        # Отрисовка точек пересечения поверх графика с увеличенным радиусом и полупрозрачностью
+        if cod_points:
+            cod_points = np.array(cod_points)
+            plt.scatter(cod_points[:, 0], cod_points[:, 1], color='red', s=60, alpha=0.5, zorder=3)
+
+        if cod_seg:
+            for segment in cod_seg:
+                plt.plot([segment[0][0], segment[1][0]], [segment[0][1], segment[1][1]], color='red', linestyle='-',
+                        linewidth=2, alpha=0.7)
+
+        #   print(proj)
+
+        plt.xlabel("X")
+        plt.ylabel("Y")
+        plt.title("Нарезка нфп")
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
 
     def test_nfp(polygon1, polygon2, onfp, anchor_point):
         fig, ax = plt.subplots()

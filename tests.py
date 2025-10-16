@@ -32,6 +32,8 @@ from libs.auxiliary import Auxiliary
 # polygon1 = Polygon([(0, 0), (0.5, 0), (0.5, 1)])
 # polygon2 = Polygon([(0, 0), (1, 0), (1, 1), (3, 1), (3, 0), (4, 0), (4, 2), (0, 2)])
 
+# polygon1 = Polygon([(0, 0), (80, 0), (80, 80), (0, 80)])
+# polygon2 = Polygon([(0, 0), (120, 0), (120, 120), (0, 120)])
 # anchor_point = (0, 0)
 
 # assert isinstance(polygon1, geom.Polygon), f"polygon1 должен быть Polygon, но получен {type(polygon1).__name__}"
@@ -43,7 +45,7 @@ from libs.auxiliary import Auxiliary
 
 # newonfp = NFP.polygon_to_path(onfp)
 
-# Test.test_encoding(newonfp, n=25)
+# Test.test_model_encoding(onfp, n=25)
 
 items = parse(".\\data_car_mats\\test.txt")
 # items = parse(".\\data_car_mats\\car_mats_1.txt")
@@ -64,7 +66,7 @@ end_time = time.time()
 print(f"Время выполнения: {end_time - start_time:.2f} секунд")
 print(result)
 
-visualize_solution(result, mdl_items, H, S, W)
+# visualize_solution(result, mdl_items, H, S, W)
 
 
 
