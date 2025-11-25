@@ -34,7 +34,7 @@ class Model:
             
         deltas = [[[solver.BoolVar(f'deltas_{s}_{n}_{r}') for r in range(R)] for n in range(N)] for s in range(S)]
         for n in range(N):
-            solver.Add(sum(sum(deltas[s][n][r] for s in range(S)) for r in range(R)) <= 1)
+            solver.Add(sum(sum(deltas[s][n][r] for s in range(S)) for r in range(R)) == 1) # TODO какой тут знак????
             
         str_vars = [[solver.IntVar(0, S, f's_{r}_{n}') for n in range(N)] for r in range(R)]
         for n in range(N):
@@ -82,7 +82,7 @@ class Model:
         for i in range(N):
             for r in range(R):
                 solver.Add(x[i][r] >= -x_min[i][r])
-                solver.Add(x[i][r] + x_max[i][r] <= (W + (1 - p[i][r])*M))
+                solver.Add((x[i][r] + x_max[i][r]) <= (W + (1 - p[i][r])*M))
                 
         NFPs = [[[[None for _ in range(R)] for _ in range(N)] for _ in range(R)] for _ in range(N)]
         Enc = [[[[None for _ in range(R)] for _ in range(N)] for _ in range(R)] for _ in range(N)]
@@ -160,8 +160,8 @@ class Model:
                             epsilon = 1e-5
                             solver.Add(x[j][r2] - x[i][r1] + epsilon <= M * gammas[i][r1][j][r2][c])
 
-                        delta_i_active = sum(deltas[s][i][r1] for s in range(S))
-                        delta_j_active = sum(deltas[s][j][r2] for s in range(S))
+                        delta_i_active = sum(deltas[s][i][r1] for s in range(S)) # TODO ошибка скорее всего тут!!!
+                        delta_j_active = sum(deltas[s][j][r2] for s in range(S)) # TODO ошибка скорее всего тут!!!
                         
                         solver.Add(x[i][r1] <= x[j][r2] - b[i][r1][j][r2][c] + 
                                 gammas[i][r1][j][r2][c] * M + 

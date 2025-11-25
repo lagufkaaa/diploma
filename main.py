@@ -70,16 +70,16 @@ def testing_model(items, W, H, R, N, S):
 # testing_encoding_of_nfp(10)
 
 items = util_model.parse_items(".\\data_car_mats\\test.txt")
-for item in items:
-    Test_Polygon.vis_polygon(item)
-Test_Polygon.vis_polygon(items[0])
+# for item in items:
+#     Test_Polygon.vis_polygon(item)
+# Test_Polygon.vis_polygon(items[0])
 
 mdl_items = items
 N = len(mdl_items)
 W=100
 H=100
 R=1
-S=2
+S=10
 
 start_time = time.time()
 result = Model.model_func(mdl_items, W, H, R, N, S)                                                         
