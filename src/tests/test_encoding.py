@@ -7,7 +7,7 @@ class Test_Encoding:
     def __init__(self):
         pass
     
-    def vis_encoding(poly: Polygon, n: int = None, h: float = None):
+    def vis_encoding(poly: Polygon, Y, n: int = None, h: float = None):
         """
         Тестовая визуализация горизонтального кодирования полигона.
 
@@ -20,23 +20,25 @@ class Test_Encoding:
         x, y = poly.exterior.xy
         plt.plot(x, y, color='gray', marker='o', linestyle='-', alpha=1, label='Полигон')
 
-        # --- 2️⃣ Определяем сетку по Y
-        min_y, max_y = poly.bounds[1], poly.bounds[3]
-        H = max_y - min_y
+        # # --- 2️⃣ Определяем сетку по Y
+        # min_y, max_y = poly.bounds[1], poly.bounds[3]
+        # H = max_y - min_y
 
-        if n is not None:
-            S = n
-            step = H / S
-        elif h is not None:
-            step = h
-            S = int(np.ceil(H / step))
-        else:
-            raise ValueError("нужно указать либо n (число строк), либо h (высоту строки)")
+        # if n is not None:
+        #     S = n
+        #     step = H / S
+        # elif h is not None:
+        #     step = h
+        #     S = int(np.ceil(H / step))
+        # else:
+        #     raise ValueError("нужно указать либо n (число строк), либо h (высоту строки)")
 
-        Y = [min_y + step * i for i in range(S + 1)]
+        # Y = [min_y + step * i for i in range(S + 1)]
 
         # --- 3️⃣ Кодирование полигона
         segments = Encoding.encode_polygon(poly, Y)
+        step = (Y[1] - Y[0])
+        S = n
 
         # --- 4️⃣ Отрисовка горизонталей
         for y_line in Y:

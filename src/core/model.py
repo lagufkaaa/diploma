@@ -9,6 +9,8 @@ import numpy as np
 
 from .encoding import Encoding
 from .nfp import NFP
+from src.tests.test_geometry import Test_NFP
+from src.tests.test_encoding import Test_Encoding
 from ..utils.helpers import util_model 
 
 class Model:
@@ -23,7 +25,7 @@ class Model:
         
         Y = [min_y + h * i for i in range(S + 1)]
 
-        M = 1e9
+        M = 1e15
         solver = pywraplp.Solver.CreateSolver('SCIP')
         Area = [Polygon(item).area for item in items]
         
@@ -34,14 +36,14 @@ class Model:
             
         deltas = [[[solver.BoolVar(f'deltas_{s}_{n}_{r}') for r in range(R)] for n in range(N)] for s in range(S)]
         for n in range(N):
-            solver.Add(sum(sum(deltas[s][n][r] for s in range(S)) for r in range(R)) == 1) # TODO какой тут знак????
+            solver.Add(sum(sum(deltas[s][n][r] for s in range(S)) for r in range(R)) <= 1) # TODO какой тут знак????
             
         str_vars = [[solver.IntVar(0, S, f's_{r}_{n}') for n in range(N)] for r in range(R)]
         for n in range(N):
             for r in range(R):
                 # str_vars[r][n] должно равняться s, для которого deltas[s][n][r] = 1
                 # Создаем выражение: str_vars[r][n] = sum(s * deltas[s][n][r] for s in range(S))
-                solver.Add(str_vars[r][n] == sum(s * deltas[s][n][r] for s in range(S)))
+                solver.Add(str_vars[r][n] == sum(s * deltas[s][n][r] for s in range(S))) # TODO если все дельты = 0, то равно 0!!!! неправильно
                 
             x = [[solver.NumVar(0, W, f'x_{r}_{n}') for r in range(R)] for n in range(N)]
 
@@ -78,6 +80,9 @@ class Model:
                 x_max[i].append(xmax)
                 y_min[i].append(ymin)
                 y_max[i].append(ymax)
+
+                solver.Add(str_vars[r][i]*h + ymin >= 0)
+                solver.Add(str_vars[r][i]*h + ymax <= H)
                 
         for i in range(N):
             for r in range(R):
@@ -100,9 +105,13 @@ class Model:
                             C[i][r1][j][r2] = None
                         else:
                             onfp = NFP.outer_no_fit_polygon(Polygon(items[i]), Polygon(items[j]), items[i][0])
+                            
+                            onfp = util_model.normalize_polygon(onfp)
+                            # Test_NFP.vis_nfp(Polygon(items[i]), Polygon(items[j]), items[i][0])
                             NFPs[i][r1][j][r2] = onfp
                             
                             Enc[i][r1][j][r2] = Encoding.encode_polygon(onfp, Y)
+                            # Test_Encoding.vis_encoding(onfp, Y)
                             
                             # Создаем промежуточные переменные
                             diff_var = solver.IntVar(-S, S, f'diff_{i}_{r1}_{j}_{r2}')
@@ -121,12 +130,15 @@ class Model:
                             target_value = abs_diff_var * h
                                                         
                             if Enc[i][r1][j][r2] != []:
-                                C[i][r1][j][r2] = round(sum(1 for seg in Enc[i][r1][j][r2] if seg[0][1] == target_value) / 2)
+                                # C[i][r1][j][r2] = round(sum(1 for seg in Enc[i][r1][j][r2] if (seg[0][1] == target_value))/ 2)
                                 
                                 for seg in Enc[i][r1][j][r2]:
                                     if seg[1][1] == target_value: 
                                         a[i][r1][j][r2].append(seg[0][0])
                                         b[i][r1][j][r2].append(seg[1][0])
+                                # print(len(a[i][r1][j][r2]))
+                                # print(len(b[i][r1][j][r2]))
+                                C[i][r1][j][r2] = len(a[i][r1][j][r2])
                             else:
                                 C[i][r1][j][r2] = 0
                             
@@ -160,22 +172,34 @@ class Model:
                             epsilon = 1e-5
                             solver.Add(x[j][r2] - x[i][r1] + epsilon <= M * gammas[i][r1][j][r2][c])
 
-                        delta_i_active = sum(deltas[s][i][r1] for s in range(S)) # TODO ошибка скорее всего тут!!!
-                        delta_j_active = sum(deltas[s][j][r2] for s in range(S)) # TODO ошибка скорее всего тут!!!
+                            for s in range(S):
+                                solver.Add(x[i][r1] - (x[j][r2] - b[i][r1][j][r2][c] + 
+                                        gammas[i][r1][j][r2][c] * M + 
+                                        (1 - p[i][r1]) * M + 
+                                        (1 - p[j][r2]) * M) <= (2 - deltas[s][i][r1] - deltas[s][j][r2]) * M)
+                                
+                                solver.Add((2 - deltas[s][i][r1] - deltas[s][j][r2]) * M >= x[j][r2] - a[i][r1][j][r2][c] - 
+                                        (1 - gammas[i][r1][j][r2][c]) * M - 
+                                        (1 - p[i][r1]) * M - 
+                                        (1 - p[j][r2]) * M - x[i][r1])
+
+
+                        # delta_i_active = sum(deltas[s][i][r1] for s in range(S)) # TODO ошибка скорее всего тут!!!
+                        # delta_j_active = sum(deltas[s][j][r2] for s in range(S)) # TODO ошибка скорее всего тут!!!
                         
-                        solver.Add(x[i][r1] <= x[j][r2] - b[i][r1][j][r2][c] + 
-                                gammas[i][r1][j][r2][c] * M + 
-                                (1 - delta_i_active) * M + 
-                                (1 - delta_j_active) * M + 
-                                (1 - p[i][r1]) * M + 
-                                (1 - p[j][r2]) * M)
+                        # solver.Add(x[i][r1] <= x[j][r2] - b[i][r1][j][r2][c] + 
+                        #         gammas[i][r1][j][r2][c] * M + 
+                        #         (1 - delta_i_active) * M + 
+                        #         (1 - delta_j_active) * M + 
+                        #         (1 - p[i][r1]) * M + 
+                        #         (1 - p[j][r2]) * M)
                         
-                        solver.Add(x[i][r1] >= x[j][r2] - a[i][r1][j][r2][c] - 
-                                (1 - gammas[i][r1][j][r2][c]) * M - 
-                                (1 - delta_i_active) * M - 
-                                (1 - delta_j_active) * M - 
-                                (1 - p[i][r1]) * M - 
-                                (1 - p[j][r2]) * M)
+                        # solver.Add(x[i][r1] >= x[j][r2] - a[i][r1][j][r2][c] - 
+                        #         (1 - gammas[i][r1][j][r2][c]) * M - 
+                        #         (1 - delta_i_active) * M - 
+                        #         (1 - delta_j_active) * M - 
+                        #         (1 - p[i][r1]) * M - 
+                        #         (1 - p[j][r2]) * M)
                         
         
 

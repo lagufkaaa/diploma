@@ -5,6 +5,7 @@
 import math as math
 import numpy as np
 from shapely.geometry import Point, Polygon, LineString, MultiPolygon
+from shapely.affinity import translate
 
 class util_polygon:
     def __init__(self):
@@ -132,21 +133,33 @@ class util_model:
                     vertices.append([x, y])
                     i += 1
 
-                # Нормализация по первой точке
-                if len(vertices) > 0:
-                    first_point = vertices[0].copy()  # Сохраняем первую точку
-                    normalized_vertices = []
-                    for vertex in vertices:
-                        # Вычитаем координаты первой точки из всех вершин
-                        normalized_vertex = [vertex[0] - first_point[0], vertex[1] - first_point[1]]
-                        normalized_vertices.append(normalized_vertex)
+                # # Нормализация по первой точке
+                # if len(vertices) > 0:
+                #     first_point = vertices[0].copy()  # Сохраняем первую точку
+                #     normalized_vertices = []
+                #     for vertex in vertices:
+                #         # Вычитаем координаты первой точки из всех вершин
+                #         normalized_vertex = [vertex[0] - first_point[0], vertex[1] - first_point[1]]
+                #         normalized_vertices.append(normalized_vertex)
                     
-                    shape = np.array(normalized_vertices)
-                    for _ in range(quantity):
-                        items.append(shape)
+                shape = np.array(vertices)
+                for _ in range(quantity):
+                    items.append(shape)
 
             else:
                 i += 1
 
         return items
+    
+    def normalize_polygon(poly):
+        """
+        Сдвигает полигон так, чтобы его bounding box начинался в (0, 0).
+        poly: shapely.geometry.Polygon или MultiPolygon
+        """
+        if poly.is_empty:
+            return poly
+
+        minx, miny, maxx, maxy = poly.bounds
+        normalized_polygon = translate(poly, xoff=-minx, yoff=-miny)
+        return normalized_polygon
 

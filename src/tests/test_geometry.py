@@ -13,6 +13,7 @@ from shapely.ops import unary_union
 import shapely.geometry as geom
 
 from ..core.nfp import NFP
+from ..utils.helpers import util_model 
 
 class Test_Polygon:
     def __init__(self):
@@ -34,6 +35,7 @@ class Test_NFP:
 
     def vis_nfp(polygon1, polygon2, anchor_point):
         onfp = NFP.outer_no_fit_polygon(polygon1, polygon2, anchor_point)
+        onfp = util_model.normalize_polygon(onfp)
         fig, ax = plt.subplots()
 
         x1, y1 = polygon1.exterior.xy

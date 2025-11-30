@@ -12,11 +12,10 @@ class Test_Model:
     def __init__(self):
         pass
         
-    def vis_simple_model(items, W, H, R, N, S, all_items=None):
-        solution = Model.model_func(items, W, H, R, N, S)
+    def vis_simple_model(items, W, H, R, N, S, solution, all_items=None):
         """
         Визуализирует решение упаковки фигур
-        
+
         Args:
             solution: словарь с решением {'p', 'x', 's', ...} или {'status': 'NOT_OPTIMAL'}
             items: список фигур, которые пытались упаковать
@@ -39,56 +38,72 @@ class Test_Model:
             plt.show()
             return
         
-        # Вычисляем высоту одной строчки
+        # Высота одной строчки
         h = H / S
         
-        # Определяем, какие фигуры были упакованы
-        packed_items = items  # фигуры, которые были переданы на упаковку
+        packed_items = items
         all_available_items = all_items if all_items is not None else items
         
         print(f"Упаковано фигур: {len([p for p in solution['p'] if p[0] == 1.0])} из {len(all_available_items)} доступных")
         print(f"Параметры: H={H}, S={S}, h={h:.1f}, W={W}")
         
-        # Создаем коллекции для упакованных и неупакованных фигур
         packed_patches = []
         unpacked_patches = []
         packed_colors = []
         unpacked_colors = []
+        
+        # ------ нормализация по первой точке полигона ------
+        def normalize_item_polygon(item_points):
+            if item_points is None:
+                return []
+
+            # Превращаем в список Python, если это numpy-массив
+            if isinstance(item_points, np.ndarray):
+                item_points = item_points.tolist()
+
+            if len(item_points) == 0:
+                return []
+
+            x0, y0 = item_points[0]
+            return [(p[0] - x0, p[1] - y0) for p in item_points]
+        # ---------------------------------------------------
         
         # Визуализируем упакованные фигуры
         for i, item in enumerate(packed_items):
             if i >= len(solution['x']) or i >= len(solution['s']) or i >= len(solution['p']):
                 continue
                 
-            # Проверяем, был ли предмет упакован (p[i][0] == 1.0)
             if solution['p'][i][0] == 1.0:
                 x_pos = solution['x'][i][0]
                 s_val = int(round(solution['s'][i][0]))
                 y_pos = s_val * h
+
+                # Нормализуем локальные координаты фигуры по первой точке
+                norm_item = normalize_item_polygon(item)
                 
-                # Создаем полигон с учетом смещения
                 polygon_points = []
-                for point in item:
-                    px = point[0] + x_pos
-                    py = point[1] + y_pos
+                for px_local, py_local in norm_item:
+                    px = px_local + x_pos
+                    py = py_local + y_pos
                     polygon_points.append([px, py])
                 
                 polygon = patches.Polygon(polygon_points, closed=True, alpha=0.8)
                 packed_patches.append(polygon)
                 packed_colors.append(i)
                 
-                # Подписываем упакованные фигуры
                 ax.text(x_pos, y_pos + h/2, f'{i}', fontweight='bold',
-                    bbox=dict(facecolor='white', alpha=0.8))
+                        bbox=dict(facecolor='white', alpha=0.8))
             else:
-                # Фигура не упакована - добавляем в список неупакованных
-                x_pos = W * 1.1  # справа от рабочей области
-                y_pos = (len(unpacked_patches) % 10) * h * 2  # вертикальное расположение
+                # Не упакована — рисуем справа
+                x_pos = W * 1.1
+                y_pos = (len(unpacked_patches) % 10) * h * 2
+                
+                norm_item = normalize_item_polygon(item)
                 
                 polygon_points = []
-                for point in item:
-                    px = point[0] + x_pos
-                    py = point[1] + y_pos
+                for px_local, py_local in norm_item:
+                    px = px_local + x_pos
+                    py = py_local + y_pos
                     polygon_points.append([px, py])
                 
                 polygon = patches.Polygon(polygon_points, closed=True, alpha=0.3, 
@@ -97,19 +112,21 @@ class Test_Model:
                 unpacked_colors.append(i)
                 
                 ax.text(x_pos, y_pos + h/2, f'{i} (не упак.)', fontweight='bold',
-                    color='red', bbox=dict(facecolor='white', alpha=0.8))
+                        color='red', bbox=dict(facecolor='white', alpha=0.8))
         
-        # Визуализируем оставшиеся неупакованные фигуры (если переданы все доступные)
+        # Оставшиеся неупакованные (если есть all_items)
         if all_available_items is not None and len(all_available_items) > len(packed_items):
             for i in range(len(packed_items), len(all_available_items)):
                 item = all_available_items[i]
-                x_pos = W * 1.1  # справа от рабочей области
-                y_pos = (len(unpacked_patches) % 10) * h * 2  # вертикальное расположение
+                x_pos = W * 1.1
+                y_pos = (len(unpacked_patches) % 10) * h * 2
+                
+                norm_item = normalize_item_polygon(item)
                 
                 polygon_points = []
-                for point in item:
-                    px = point[0] + x_pos
-                    py = point[1] + y_pos
+                for px_local, py_local in norm_item:
+                    px = px_local + x_pos
+                    py = py_local + y_pos
                     polygon_points.append([px, py])
                 
                 polygon = patches.Polygon(polygon_points, closed=True, alpha=0.3, 
@@ -118,27 +135,25 @@ class Test_Model:
                 unpacked_colors.append(i)
                 
                 ax.text(x_pos, y_pos + h/2, f'{i} (не упак.)', fontweight='bold',
-                    color='red', bbox=dict(facecolor='white', alpha=0.8))
+                        color='red', bbox=dict(facecolor='white', alpha=0.8))
         
-        # Добавляем упакованные фигуры
+        # Добавляем коллекции
         if packed_patches:
             p_packed = PatchCollection(packed_patches, cmap='tab10', alpha=0.7)
-            p_packed.set_array(np.array(packed_colors) % 10)  # ограничиваем цвета
+            p_packed.set_array(np.array(packed_colors) % 10)
             ax.add_collection(p_packed)
         
-        # Добавляем неупакованные фигуры
         if unpacked_patches:
             p_unpacked = PatchCollection(unpacked_patches, alpha=0.3, 
-                                    edgecolor='red', facecolor='lightgray')
+                                        edgecolor='red', facecolor='lightgray')
             ax.add_collection(p_unpacked)
         
-        # Рисуем сетку строчек
+        # Сетка строчек
         for s in range(0, S + 1, max(1, S // 20)):
             y_line = s * h
             ax.axhline(y=y_line, color='gray', linestyle='--', alpha=0.5)
             ax.text(W * 1.01, y_line + h/2, f'{s}', va='center', fontsize=8)
         
-        # Настраиваем внешний вид
         x_limit = W * 1.2 if unpacked_patches else W * 1.05
         ax.set_xlim(0, x_limit)
         ax.set_ylim(0, H)
@@ -153,7 +168,6 @@ class Test_Model:
         ax.set_title(title)
         ax.grid(True, alpha=0.3)
         
-        # Легенда
         from matplotlib.lines import Line2D
         legend_elements = [
             Line2D([0], [0], color='blue', marker='s', linestyle='None',
@@ -163,7 +177,6 @@ class Test_Model:
         ]
         ax.legend(handles=legend_elements, loc='upper right')
         
-        # Информация
         objective_value = solution.get('objective_value', 0)
         efficiency = (objective_value / (W * H)) * 100 if W * H > 0 else 0
         
