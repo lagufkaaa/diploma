@@ -25,7 +25,7 @@ class Model:
         
         Y = [min_y + h * i for i in range(S + 1)]
 
-        M = 1e15
+        M = 1e17
         solver = pywraplp.Solver.CreateSolver('SCIP')
         Area = [Polygon(item).area for item in items]
         
@@ -167,6 +167,18 @@ class Model:
                 for j in range(i + 1, N): # TODO точно ли i + 1
                     for r2 in range(R):
                         for c in range(C[i][r1][j][r2]):
+                            diff_var_x = solver.NumVar(-W, W, f'diff_{i}_{r1}_{j}_{r2}')
+                            abs_diff_var_x = solver.NumVar(0, W, f'abs_diff_{i}_{r1}_{j}_{r2}')
+
+                            solver.Add(diff_var_x == - x[i][r1] + x[j][r2])
+                            solver.Add(abs_diff_var_x >= diff_var_x)
+                            solver.Add(abs_diff_var_x >= -diff_var_x)
+                            solver.Add(abs_diff_var_x <= diff_var_x + M * (1 - gammas[i][r1][j][r2][c]))
+                            solver.Add(abs_diff_var_x <= -diff_var_x + M * gammas[i][r1][j][r2][c])
+                            solver.Add(diff_var_x >= -M * (1 - gammas[i][r1][j][r2][c]))
+                            solver.Add(diff_var_x <= M * gammas[i][r1][j][r2][c] - 1e-9)
+
+
                             solver.Add(x[i][r1] - x[j][r2] >= -M * (1 - gammas[i][r1][j][r2][c]))
 
                             epsilon = 1e-5
