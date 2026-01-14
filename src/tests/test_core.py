@@ -27,7 +27,7 @@ def test_parse_items_and_data_items():
     # limit the number of shapes to avoid heavy computations during tests
     items = items[:5]
 
-    data = Data(items, R=0)
+    data = Data(items, R=1)
     assert isinstance(data.items, list)
     assert all(isinstance(it, Item) for it in data.items)
     # each item should have a reference back to data and an nfp dict (possibly empty)

@@ -3,9 +3,14 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from src.utils.helpers import util_NFP
 import math
+import uuid
 
 class Data:
     def __init__(self, items: list, R: int):
+        self.R = R
+        self.angle = 360 / R
+        self.N = len(items)
+
         # `items` может быть списком готовых `Item` или списком "сырых" точек.
         if items and isinstance(items[0], Item):
             items_with_rotation = self._get_items_with_rotation(items)
@@ -13,9 +18,7 @@ class Data:
             # создаём объекты Item из сырых точек (без вычисления NFP)
             items_with_rotation = self._get_items_with_rotation([Item(points) for points in items])
 
-        self.items = items_with_rotation  # вместе с поворотами
-        self.R = R
-        self.N = len(items)
+        self.items = items_with_rotation
 
         # привязываем ссылку на Data и вычисляем NFP после создания всех Item
         for it in self.items:
@@ -24,10 +27,17 @@ class Data:
             it.compute_nfp()
 
     def _get_items_with_rotation(self, items):
-        return items  # TODO реализовать повороты
+        temp = []
+        for it in items:
+            temp.append(it)
+            for r in range(self.R):
+                it.change_rotation(self.angle)
+                temp.append(it)
+        return temp
     
 class Item:
     def __init__(self, points: array, data: 'Data' = None):
+        self.id = uuid.uuid4() # одинаковый у разных поворотов одного предмета!!!!
         self.points = points
         self.polygon = Polygon(points)
         self.area = self.polygon.area
@@ -75,7 +85,7 @@ class Item:
         anchor_point = self.points[0]
         NFP_dict = {}
         for item in data.items:
-            if item is self:  # проверяем идентичность объектов
+            if item.id == self.id:
                 continue
 
             NFP_dict[item] = self.outer_NFP(item, anchor_point)
