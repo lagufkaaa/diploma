@@ -36,6 +36,8 @@ class NFP:
         return unary_union(polygons)
     
     def outer_no_fit_polygon(polygon1, polygon2, anchor_point=(0, 0)):
+        outer1, _ = util_NFP.polygon_to_path_pycl(polygon1)
+        anchor_point = outer1[0]
         if not isinstance(polygon1, Polygon):
             raise TypeError(f"[outer_no_fit_polygon] polygon1 должен быть Polygon, получен {type(polygon1).__name__}")
         if not isinstance(polygon2, Polygon):
@@ -44,5 +46,10 @@ class NFP:
         minkowski = NFP.minkowski_difference(polygon1, polygon2, anchor_point)
         base_polygon = polygon2.buffer(0)
 
-        return unary_union([base_polygon, minkowski])
+        poly = unary_union([base_polygon, minkowski]).buffer(0)
+        if getattr(poly, 'geom_type', None) == 'MultiPolygon':
+            poly = max(poly.geoms, key=lambda p: p.area)
+        if not isinstance(poly, Polygon):
+            poly = Polygon()
+        return poly
 

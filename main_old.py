@@ -1,13 +1,13 @@
 import time
 
 from shapely.geometry import Polygon
-from src.tests.test_encoding import Test_Encoding
-from src.tests.test_geometry import Test_Polygon, Test_NFP
-from src.core.nfp import NFP
-from src.utils.helpers import util_polygon
-from src.utils.helpers import util_model
-from src.tests.test_model import Test_Model
-from src.core.model import Model
+from src_old.tests.test_encoding import Test_Encoding
+from src_old.tests.test_geometry import Test_Polygon, Test_NFP
+from src_old.core.nfp import NFP
+from src_old.utils.helpers import util_polygon
+from src_old.utils.helpers import util_model
+from src_old.tests.test_model import Test_Model
+from src_old.core.model import Model
 
 def testing_encoding(poly=None, n=None, h=None):
     if poly == None:
@@ -70,24 +70,24 @@ def testing_model(items, W, H, R, N, S):
 # testing_encoding_of_nfp(10)
 
 # items = util_model.parse_items(".\\data_car_mats\\test.txt")
-items = util_model.parse_items(".\\data_car_mats\\test.txt")
+items = util_model.parse_items(".\\data_car_mats\\car_mats_1.txt")
 # for item in items:
 #     Test_Polygon.vis_polygon(item)
 # Test_Polygon.vis_polygon(items[0])
 
 mdl_items = items
 
-#mdl_items = []
-#for i in range( len(items)//5):
-#    mdl_items.append(items[5*i])
+mdl_items = []
+for i in range( len(items)//5):
+   mdl_items.append(items[5*i])
 
-#mdl_items = mdl_items[:5]
+mdl_items = mdl_items[:2]
 # for item in mdl_items:
 #     Test_Polygon.vis_polygon(item)
 
 N = len(mdl_items)
-W=1000
-H=1000
+W=100000
+H=100000
 R=1
 S=20
 

@@ -2,25 +2,14 @@ import math as math
 import numpy as np
 from shapely.geometry import Polygon 
 
-from src.utils.helpers import util_encoding as ue
-from src.utils.helpers import util_polygon as up
+from ..utils.helpers import util_encoding as ue
+from ..utils.helpers import util_polygon as up
 
 
 class Encoding:
-    def __init__(self, data, S, height):
-        self.data = data
-        self.S = S
-        self.height = height
-        self.Y = [i * (height / S) for i in range(S + 1)]
-        self.enc = self._get_encoding(data, self.Y)
-
-    def _get_encoding(self, data, Y):
-        enc = {}
-        for p in data.items:
-            for nfp in p.nfp:
-                enc[nfp] = Encoding.encode_polygon(nfp, Y)
-        return enc
-
+    def __init__(self):
+        pass
+    
     def seg_y(T, poly):
         exterior_path, interior_path = up.polygon_to_path(poly)
         seg = []
@@ -272,7 +261,7 @@ class Encoding:
         if len(Y) <= 0:
             raise ValueError("количество строк не может быть меньше 1")
         if not isinstance(poly, Polygon):
-            raise TypeError("poly должен быть объектом shapely.geometry.Polygon")
+            raise TypeError("poly должен быть объектом shapely.geometry.Polygon, а получен " + str(type(poly)))
 
         # 1️⃣ формируем горизонтальные уровни
         # уже передаются в функцию

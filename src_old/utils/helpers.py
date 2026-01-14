@@ -1,9 +1,11 @@
+# Список функций:
+#     1. парсер данных
+#     2. round_up_if_needed
+#     3. polygon_to_path
 import math as math
 import numpy as np
 from shapely.geometry import Point, Polygon, LineString, MultiPolygon
 from shapely.affinity import translate
-import pyclipper
-from shapely.ops import unary_union
 
 class util_polygon:
     def __init__(self):
@@ -83,30 +85,6 @@ class util_NFP:
         outer = to_int_coords(polygon.exterior.coords[:-1])
         holes = [to_int_coords(interior.coords[:-1]) for interior in polygon.interiors]
         return outer, holes
-    
-    def minkowski_difference(polygon1, polygon2, anchor_point=(0, 0)):
-        SCALE = 1e6
-        if not isinstance(polygon1, Polygon):
-            raise TypeError(f"[minkowski_difference] polygon1 должен быть Polygon, получен {type(polygon1).__name__}")
-        if not isinstance(polygon2, Polygon):
-            raise TypeError(f"[minkowski_difference] polygon2 должен быть Polygon, получен {type(polygon2).__name__}")
-
-        outer1, _ = util_NFP.polygon_to_path_pycl(polygon1)
-        outer2, _ = util_NFP.polygon_to_path_pycl(polygon2)
-
-        ax, ay = int(anchor_point[0] * SCALE), int(anchor_point[1] * SCALE)
-        inv_outer1 = [(-x + ax, -y + ay) for x, y in outer1]
-
-        result = pyclipper.MinkowskiSum(outer2, inv_outer1, True)
-
-        polygons = [Polygon([(x / SCALE, y / SCALE) for x, y in path]) for path in result]
-        polygons = [p.buffer(0) for p in polygons if p.is_valid and not p.is_empty]
-
-        if not polygons:
-            return Polygon()
-
-        return unary_union(polygons)
-
 
 class util_model:
     def __init__(self):
