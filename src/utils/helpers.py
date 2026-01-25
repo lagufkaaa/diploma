@@ -4,6 +4,7 @@ from shapely.geometry import Point, Polygon, LineString, MultiPolygon
 from shapely.affinity import translate
 import pyclipper
 from shapely.ops import unary_union
+from core.data import Data, Item
 
 class util_polygon:
     def __init__(self):
@@ -107,7 +108,6 @@ class util_NFP:
 
         return unary_union(polygons)
 
-
 class util_model:
     def __init__(self):
         pass
@@ -184,4 +184,3 @@ class util_model:
         minx, miny, maxx, maxy = poly.bounds
         normalized_polygon = translate(poly, xoff=-minx, yoff=-miny)
         return normalized_polygon
-
