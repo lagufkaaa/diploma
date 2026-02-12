@@ -113,6 +113,15 @@ class util_model:
         pass
 
     def find_bounding_box_numpy(points):
+        points_array = np.array(points, dtype=float)
+
+        # --- Нормализация относительно первой точки ---
+        anchor = points_array[0]
+        normalized = points_array - anchor
+
+        xs = normalized[:, 0]
+        ys = normalized[:, 1]
+
         points_array = np.array(points)
         xs = points_array[:, 0]
         ys = points_array[:, 1]
