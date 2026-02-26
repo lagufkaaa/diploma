@@ -10,15 +10,16 @@ class Data:
         self.R = R
         self.angle = 360 / R
         self.N = len(items)
-
+        
         # `items` может быть списком готовых `Item` или списком "сырых" точек.
         if items and isinstance(items[0], Item):
-            items_with_rotation = self._get_items_with_rotation(items)
+            items_with_rotation, dict_rot = self._get_items_with_rotation(items)
         else:
             # создаём объекты Item из сырых точек (без вычисления NFP)
-            items_with_rotation = self._get_items_with_rotation([Item(points) for points in items])
+            items_with_rotation, dict_rot = self._get_items_with_rotation([Item(points) for points in items])
 
         self.items = items_with_rotation
+        self.dict_rot = dict_rot
 
         # привязываем ссылку на Data и вычисляем NFP после создания всех Item
         for it in self.items:
@@ -29,13 +30,17 @@ class Data:
         self.matr = {}
 
     def _get_items_with_rotation(self, items):
-        temp = []
+        temp_dict = {}
+        temp_all_items = []
         for it in items:
-            temp.append(it)
+            temp_dict[it] = []
+            temp_all_items.append(it)
+            temp_dict[it].append(it)
             for r in range(self.R):
                 it.change_rotation(self.angle)
-                temp.append(it)
-        return temp
+                temp_all_items.append(it)
+                temp_dict[it].append(it)
+        return temp_all_items, temp_dict
     
     def _build_matrix(self):
         for i1 in self.items:
@@ -44,7 +49,6 @@ class Data:
                     self.matr[(i1, i2)] = 0
                 else: 
                     self.matr[(i1, i2)] = 1
-        pass
     
 class Item:
     def __init__(self, points: array, data: 'Data' = None):
