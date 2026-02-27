@@ -4,7 +4,6 @@ from shapely.geometry import Point, Polygon, LineString, MultiPolygon
 from shapely.affinity import translate
 import pyclipper
 from shapely.ops import unary_union
-from core.data import Data, Item
 
 class util_polygon:
     def __init__(self):
@@ -192,4 +191,66 @@ class util_model:
 
         minx, miny, maxx, maxy = poly.bounds
         normalized_polygon = translate(poly, xoff=-minx, yoff=-miny)
-        return normalized_polygon
+        return normalized_polygon    
+    
+    def visualize_solution(self, items, solution, width, height, S, all_items=None):
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as patches
+        import numpy as np
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+        if solution.get('status') != 'OPTIMAL':
+            ax.text(0.5, 0.5, f"Статус: {solution.get('status')}", ha='center', va='center',
+                    transform=ax.transAxes, bbox=dict(facecolor='red', alpha=0.3))
+            ax.set_xlim(0, width); ax.set_ylim(0, height)
+            plt.show()
+            return
+
+        h = height / S
+
+        def pts(it):
+            if hasattr(it, 'points'): return np.asarray(it.points, dtype=float)
+            elif isinstance(it, np.ndarray): return it.astype(float)
+            elif isinstance(it, list): return np.asarray(it, dtype=float)
+            else: raise TypeError(f"unsupported item type {type(it)}")
+
+        packed_patches = []
+        unpacked = []
+
+        for idx, it in enumerate(items):
+            deltas = solution.get('deltas', [[0]*S for _ in range(len(items))])[idx]
+            strip_idx = next((s for s in range(len(deltas)) if deltas[s] > 0.5), None)
+            is_packed = strip_idx is not None
+
+            arr = pts(it)  # <-- БЕЗ norm()
+
+            if is_packed:
+                x = float(solution['x'][idx])
+                y = strip_idx * h
+
+                coords = [(float(xx) + x, float(yy) + y) for xx, yy in arr]
+                poly = patches.Polygon(coords, closed=True, alpha=0.6)
+                packed_patches.append((poly, idx))
+            else:
+                unpacked.append((arr, idx))
+
+        for poly, idx in packed_patches:
+            ax.add_patch(poly)
+            ax.text(poly.xy[0][0], poly.xy[0][1], str(idx), color='white')
+
+        # полосы
+        for s in range(S + 1):
+            ax.axhline(y=s * h, color='red', linestyle='-', alpha=1, linewidth=1)
+
+        # границы контейнера
+        ax.axvline(x=0, color='black', linewidth=2)
+        ax.axvline(x=width, color='black', linewidth=2)
+        ax.axhline(y=0, color='black', linewidth=2)
+        ax.axhline(y=height, color='black', linewidth=2)
+
+        ax.set_xlim(-width * 0.05, width * 1.05)
+        ax.set_ylim(-h * 0.1, height + h * 0.1)
+        ax.set_aspect('equal')
+        ax.grid(True, alpha=0.2)
+        plt.show()

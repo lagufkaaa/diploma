@@ -1,9 +1,10 @@
 from numpy import array
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
-from src.utils.helpers import util_NFP, util_model  
+from utils.helpers import util_NFP, util_model  
 import math
 import uuid
+import numpy as np
 
 class Data:
     def __init__(self, items: list, R: int):
@@ -11,17 +12,14 @@ class Data:
         self.angle = 360 / R
         self.N = len(items)
         
-        # `items` может быть списком готовых `Item` или списком "сырых" точек.
         if items and isinstance(items[0], Item):
             items_with_rotation, dict_rot = self._get_items_with_rotation(items)
         else:
-            # создаём объекты Item из сырых точек (без вычисления NFP)
             items_with_rotation, dict_rot = self._get_items_with_rotation([Item(points) for points in items])
 
         self.items = items_with_rotation
         self.dict_rot = dict_rot
 
-        # привязываем ссылку на Data и вычисляем NFP после создания всех Item
         for it in self.items:
             it.data = self
         for it in self.items:
@@ -32,14 +30,19 @@ class Data:
     def _get_items_with_rotation(self, items):
         temp_dict = {}
         temp_all_items = []
+
         for it in items:
             temp_dict[it] = []
+            # keep the original orientation
             temp_all_items.append(it)
             temp_dict[it].append(it)
-            for r in range(self.R):
-                it.change_rotation(self.angle)
-                temp_all_items.append(it)
-                temp_dict[it].append(it)
+
+            for r in range(1, self.R):
+                new_it = Item(it.points.copy())
+                new_it.rotation = it.rotation
+                new_it.change_rotation(self.angle)
+                temp_all_items.append(new_it)
+                temp_dict[it].append(new_it)
         return temp_all_items, temp_dict
     
     def _build_matrix(self):
@@ -53,17 +56,21 @@ class Data:
 class Item:
     def __init__(self, points: array, data: 'Data' = None):
         self.id = uuid.uuid4() # одинаковый у разных поворотов одного предмета!!!!
-        self.points = points
-        self.polygon = Polygon(points)
-        self.area = self.polygon.area
         self.nfp = None
         self.rotation = 0
-        self.data = data
 
-        # Получаем bounding box как словарь
+        pts = np.asarray(points, dtype=float)
+        anchor = pts[0].copy()
+        pts = pts - anchor
+        self.points = pts
+        
+        self.data = data
+        self.polygon = Polygon(self.points)
+        
+        self.area = self.polygon.area
+
         bbox = util_model.find_bounding_box_numpy(points)
         
-        # Извлекаем значения из словаря
         self.xmin = bbox['min_x']
         self.xmax = bbox['max_x'] 
         self.ymin = bbox['min_y']

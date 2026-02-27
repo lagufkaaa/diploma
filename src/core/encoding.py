@@ -1,24 +1,97 @@
-import math as math
 import numpy as np
-from shapely.geometry import Polygon 
-
-from src.utils.helpers import util_encoding as ue
-from src.utils.helpers import util_polygon as up
-
+from shapely.geometry import Polygon, MultiPolygon
+from utils.helpers import util_encoding as ue
+from utils.helpers import util_polygon as up
 
 class Encoding:
     def __init__(self, data, S, height):
         self.data = data
         self.S = S
         self.height = height
-        self.Y = [i * (height / S) for i in range(S + 1)]
-        self.enc = self._get_encoding(data, self.Y)
+        self.h = height / S
 
-    def _get_encoding(self, data, Y):
+        # k = s_j - s_i
+        self.K = list(range(-(S - 1), (S - 1) + 1))
+        self.Y_rel = [k * self.h for k in self.K]  # уровни в координатах NFP
+
+        # enc[(i, j, k)] = list of segments [[x1,y],[x2,y]] on y = k*h
+        self.enc = self._get_encoding_by_k()
+
+        # k_bounds[(i,j)] = (n_min, n_max)
+        self.k_bounds = self._get_k_bounds()
+
+    def _get_k_bounds(self):
+        """
+        Минимальный вариант: разрешаем все k из self.K для всех пар.
+        Если у тебя есть реальные n_min/n_max из геометрии/статей — сюда подставишь их.
+        """
+        bounds = {}
+        for i in self.data.items:
+            for j in self.data.items:
+                if i.id == j.id:
+                    continue
+                bounds[(i, j)] = (min(self.K), max(self.K))
+        return bounds
+
+    def _encode_one_nfp(self, nfp_geom):
+        """
+        Возвращает общий список сегментов по всем y из self.Y_rel.
+        Если MultiPolygon — объединяем сегменты по частям и мерджим.
+        """
+        if isinstance(nfp_geom, Polygon):
+            segs = Encoding.encode_polygon(nfp_geom, self.Y_rel)
+            return segs
+
+        if isinstance(nfp_geom, MultiPolygon):
+            all_segs = []
+            for poly in nfp_geom.geoms:
+                all_segs.extend(Encoding.encode_polygon(poly, self.Y_rel))
+            # обязательно слить, чтобы не было дублей/перекрытий
+            return Encoding.merge_segments_y(all_segs)
+
+        raise TypeError(f"NFP geometry must be Polygon/MultiPolygon, got {type(nfp_geom)}")
+
+    def _bucket_by_k(self, segs, eps=1e-9):
+        """
+        segs: список [[x1,y],[x2,y]] для разных y.
+        Возвращает dict k -> list of segments for y≈k*h.
+        """
+        by_k = {k: [] for k in self.K}
+        for s in segs:
+            y = float(s[0][1])
+            k_float = y / self.h
+            k_round = int(round(k_float))
+            if k_round in by_k and abs(y - k_round * self.h) <= eps:
+                # нормализуем порядок x
+                x1 = float(min(s[0][0], s[1][0]))
+                x2 = float(max(s[0][0], s[1][0]))
+                by_k[k_round].append([[x1, k_round * self.h], [x2, k_round * self.h]])
+
+        # слить по каждому k для стабильности
+        for k in list(by_k.keys()):
+            if by_k[k]:
+                by_k[k] = Encoding.merge_segments_y(by_k[k])
+        return by_k
+
+    def _get_encoding_by_k(self):
         enc = {}
-        for p in data.items:
-            for nfp in p.nfp:
-                enc[nfp] = Encoding.encode_polygon(nfp, Y)
+        for p in self.data.items:
+            # ВАЖНО: не .values(), а пары (other -> nfp)
+            if not p.nfp:
+                continue
+            for other, nfp_geom in p.nfp.items():
+                if other is None or other.id == p.id:
+                    continue
+                if nfp_geom is None:
+                    continue
+
+                segs_all = self._encode_one_nfp(nfp_geom)
+                by_k = self._bucket_by_k(segs_all)
+
+                for k, segs_k in by_k.items():
+                    if segs_k:
+                        enc[(p, other, k)] = segs_k
+
         return enc
 
     def seg_y(T, poly):
