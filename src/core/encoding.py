@@ -2,6 +2,7 @@ import numpy as np
 from shapely.geometry import Polygon, MultiPolygon
 from utils.helpers import util_encoding as ue
 from utils.helpers import util_polygon as up
+from utils.helpers import util_model as um
 
 class Encoding:
     def __init__(self, data, S, height):
@@ -11,7 +12,7 @@ class Encoding:
         self.h = height / S
 
         # k = s_j - s_i
-        self.K = list(range(-(S - 1), (S - 1) + 1))
+        self.K = list(range(-(S - 1), (S) + 1))
         self.Y_rel = [k * self.h for k in self.K]  # уровни в координатах NFP
 
         # enc[(i, j, k)] = list of segments [[x1,y],[x2,y]] on y = k*h
@@ -30,7 +31,16 @@ class Encoding:
             for j in self.data.items:
                 if i.id == j.id:
                     continue
-                bounds[(i, j)] = (min(self.K), max(self.K))
+                ext, inter = up.polygon_to_path(i.nfp[j])
+                bbox = um.find_bounding_box_numpy(ext)
+        
+                xmin = bbox['min_x']
+                xmax = bbox['max_x'] 
+                ymin = bbox['min_y']
+                ymax = bbox['max_y']
+                
+                bounds[(i, j)] = (ymin, ymax)
+
         return bounds
 
     def _encode_one_nfp(self, nfp_geom):

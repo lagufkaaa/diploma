@@ -25,8 +25,6 @@ class Data:
         for it in self.items:
             it.compute_nfp()
 
-        self.matr = {}
-
     def _get_items_with_rotation(self, items):
         temp_dict = {}
         temp_all_items = []
@@ -44,15 +42,7 @@ class Data:
                 temp_all_items.append(new_it)
                 temp_dict[it].append(new_it)
         return temp_all_items, temp_dict
-    
-    def _build_matrix(self):
-        for i1 in self.items:
-            for i2 in self.items:
-                if i1.id == i2.id:
-                    self.matr[(i1, i2)] = 0
-                else: 
-                    self.matr[(i1, i2)] = 1
-    
+        
 class Item:
     def __init__(self, points: array, data: 'Data' = None):
         self.id = uuid.uuid4() # одинаковый у разных поворотов одного предмета!!!!

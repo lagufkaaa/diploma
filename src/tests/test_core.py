@@ -94,9 +94,9 @@ def test_model_basic():
     items = items #[:2]  # limit to 5 items for testing
     
     R = 1
-    S = 3
-    height = 400.0
-    width = 400.0
+    S = 4
+    height = 1000.0
+    width = 1000.0
 
     total_start = time.time()
     
@@ -163,7 +163,6 @@ def test_model_basic():
             "geom": geom_global,
         })
 
-        # (опционально) только если тебе надо диагностировать "вылез из полосы"
         miny, maxy = geom_global.bounds[1], geom_global.bounds[3]
         if miny < s_idx * h_strip - 1e-6 or maxy > (s_idx + 1) * h_strip + 1e-6:
             print(f"!! ITEM {rec['orig_idx']} leaves strip {s_idx}: y=[{miny:.3f},{maxy:.3f}] "
