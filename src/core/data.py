@@ -37,8 +37,10 @@ class Data:
 
             for r in range(1, self.R):
                 new_it = Item(it.points.copy())
+                # Same physical piece in another rotation -> keep group id.
+                new_it.id = it.id
                 new_it.rotation = it.rotation
-                new_it.change_rotation(self.angle)
+                new_it.change_rotation(r * self.angle)
                 temp_all_items.append(new_it)
                 temp_dict[it].append(new_it)
         return temp_all_items, temp_dict
@@ -59,7 +61,7 @@ class Item:
         
         self.area = self.polygon.area
 
-        bbox = util_model.find_bounding_box_numpy(points)
+        bbox = util_model.find_bounding_box_numpy(self.points)
         
         self.xmin = bbox['min_x']
         self.xmax = bbox['max_x'] 
@@ -83,7 +85,12 @@ class Item:
 
         self.points = array(rotated_points)
         self.polygon = Polygon(self.points)
-        self.area = self.area
+        self.area = self.polygon.area
+        bbox = util_model.find_bounding_box_numpy(self.points)
+        self.xmin = bbox['min_x']
+        self.xmax = bbox['max_x']
+        self.ymin = bbox['min_y']
+        self.ymax = bbox['max_y']
         self.rotation = (self.rotation + angle) % 360
 
     def compute_nfp(self):

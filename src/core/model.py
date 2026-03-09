@@ -4,8 +4,6 @@ from typing import Dict, Tuple
 from core.data import Data, Item
 from core.encoding import Encoding
 
-import math
-
 class Problem:
     def __init__(
         self,
@@ -104,10 +102,10 @@ class Problem:
             for s in range(self.S):
                 self.deltas[(it, s)] = self.solver.BoolVar(f"delta_{it}_{s}")
 
-        # gamma variables: only where segments exist
+        # gamma variables: one binary per NFP segment c
         for (i, j, k), _segs in self.encoding.enc.items():
-            Ck = self.C[(i, j, k)]
-            for c in range(Ck):
+            c_count = self.C.get((i, j, k), 0)
+            for c in range(c_count):
                 self.gammas[(i, j, k, c)] = self.solver.BoolVar(f"gamma_{i}_{j}_{k}_{c}")
 
     # ---------- constraints ----------
@@ -123,10 +121,10 @@ class Problem:
         for it in self.data.items:
             # X bounds (relaxed if not packed)
             self.solver.Add(self.x[it] + it.xmax <= self.width + self.big_M * (1 - self.p[it]))
-            self.solver.Add(self.x[it] + it.xmin >= 0.0)
+            self.solver.Add(self.x[it] + it.xmin >= -self.big_M * (1 - self.p[it]))
 
             # ---- keep your Y global constraints too (optional but OK) ----
-            self.solver.Add(self.str_var[it] * self.h + it.ymin >= 0.0)
+            self.solver.Add(self.str_var[it] * self.h + it.ymin >= -self.big_M * (1 - self.p[it]))
             self.solver.Add(self.str_var[it] * self.h + it.ymax <= self.height + self.big_M * (1 - self.p[it]))
     
     def _add_single_use_constraints(self) -> None:
@@ -147,14 +145,13 @@ class Problem:
                 for s in range(self.S):
                     all_deltas.append(self.deltas[(it, s)])
                 # у каждой копии sum delta = p
-                self.solver.Add(sum(self.deltas[(it, s)] for s in range(self.S)) == self.p[it])
+                # self.solver.Add(sum(self.deltas[(it, s)] for s in range(self.S)) == self.p[it])
 
             self.solver.Add(sum(all_deltas) <= 1)
 
     def _add_zero_checking_deltas(self) -> None:
         for i in self.data.items:
             self.solver.Add((1 - self.p[i])*self.M <= self.str_var[i])
-            
             
     def _add_non_overlap_constraints(self) -> None:
         for i in self.data.items:
@@ -171,14 +168,15 @@ class Problem:
                     di = self.deltas[(i, si)]
                     for sj in range(self.S):
                         dj = self.deltas[(j, sj)]
-                        k = sj - si
+                        # Encoding enc[(i,j,k)] is built for k = s_i - s_j.
+                        k = si - sj
 
                         if k < n_min or k > n_max:
                             continue
 
                         key = (i, j, k)
                         Ck = self.C.get(key, 0)
-                        if Ck == 0:
+                        if Ck <= 0:
                             continue
 
                         for c in range(Ck):
@@ -186,9 +184,8 @@ class Problem:
                             a_val = self.a[key][c]
                             b_val = self.b[key][c]
 
-                            # x_i <= x_j - b + gamma*M + (1-di)M + (1-dj)M
                             self.solver.Add(
-                                self.x[i] <= self.x[j] - b_val
+                                self.x[i] <= self.x[j] + a_val
                                 + self.big_M * gamma
                                 + self.big_M * (1 - di)
                                 + self.big_M * (1 - dj)
@@ -196,9 +193,8 @@ class Problem:
                                 + self.big_M * (1 - self.p[j])
                             )
 
-                            # x_i >= x_j - a - (1-gamma)M - (1-di)M - (1-dj)M
                             self.solver.Add(
-                                self.x[i] >= self.x[j] - a_val
+                                self.x[i] >= self.x[j] + b_val
                                 - self.big_M * (1 - gamma)
                                 - self.big_M * (1 - di)
                                 - self.big_M * (1 - dj)

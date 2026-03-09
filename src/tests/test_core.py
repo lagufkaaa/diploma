@@ -83,20 +83,20 @@ def placed_geometry(item, x_shift, y_shift):
     return affinity.translate(poly, xoff=float(x_shift), yoff=float(y_shift))
 
 def test_model_basic():
-    file_path = DATA_DIR / 'test.txt'
+    file_path = DATA_DIR / 'car_mats_1.txt' #'test.txt'
     items = util_model.parse_items(str(file_path))
     assert len(items) > 0, "no items parsed from test file"
     mdl_items = []
-    # for i in range( len(items)//5):
-    #     mdl_items.append(items[5*i])
+    for i in range( len(items)//5):
+        mdl_items.append(items[5*i])
 
-    # items = mdl_items[:4] 
-    items = items #[:2]  # limit to 5 items for testing
+    items = mdl_items[:4] 
+    # items = items #[:2]
     
-    R = 1
-    S = 4
-    height = 1000.0
-    width = 1000.0
+    R = 3
+    S = 10
+    height = 200000.0
+    width = 200000.0
 
     total_start = time.time()
     

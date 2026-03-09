@@ -1,8 +1,8 @@
 import numpy as np
+import math
 from shapely.geometry import Polygon, MultiPolygon
 from utils.helpers import util_encoding as ue
 from utils.helpers import util_polygon as up
-from utils.helpers import util_model as um
 
 class Encoding:
     def __init__(self, data, S, height):
@@ -12,7 +12,7 @@ class Encoding:
         self.h = height / S
 
         # k = s_j - s_i
-        self.K = list(range(-(S - 1), (S) + 1))
+        self.K = list(range(-(S - 1), S))
         self.Y_rel = [k * self.h for k in self.K]  # уровни в координатах NFP
 
         # enc[(i, j, k)] = list of segments [[x1,y],[x2,y]] on y = k*h
@@ -27,19 +27,37 @@ class Encoding:
         Если у тебя есть реальные n_min/n_max из геометрии/статей — сюда подставишь их.
         """
         bounds = {}
+        k_min_all = self.K[0]
+        k_max_all = self.K[-1]
         for i in self.data.items:
             for j in self.data.items:
                 if i.id == j.id:
                     continue
-                ext, inter = up.polygon_to_path(i.nfp[j])
-                bbox = um.find_bounding_box_numpy(ext)
-        
-                xmin = bbox['min_x']
-                xmax = bbox['max_x'] 
-                ymin = bbox['min_y']
-                ymax = bbox['max_y']
-                
-                bounds[(i, j)] = (ymin, ymax)
+                geom = i.nfp[j]
+                if geom is None or geom.is_empty:
+                    bounds[(i, j)] = (1, 0)
+                    continue
+
+                if isinstance(geom, Polygon):
+                    ymin = float(geom.bounds[1])
+                    ymax = float(geom.bounds[3])
+                elif isinstance(geom, MultiPolygon):
+                    ys_min = [float(poly.bounds[1]) for poly in geom.geoms if not poly.is_empty]
+                    ys_max = [float(poly.bounds[3]) for poly in geom.geoms if not poly.is_empty]
+                    if not ys_min:
+                        bounds[(i, j)] = (1, 0)
+                        continue
+                    ymin = min(ys_min)
+                    ymax = max(ys_max)
+                else:
+                    bounds[(i, j)] = (1, 0)
+                    continue
+
+                n_min = int(math.ceil((ymin / self.h) - 1e-9))
+                n_max = int(math.floor((ymax / self.h) + 1e-9))
+                n_min = max(n_min, k_min_all)
+                n_max = min(n_max, k_max_all)
+                bounds[(i, j)] = (n_min, n_max)
 
         return bounds
 
