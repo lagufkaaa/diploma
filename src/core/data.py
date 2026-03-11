@@ -1,16 +1,142 @@
+import hashlib
+import math
+import os
+import sqlite3
+import time
+import uuid
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
+from typing import Dict, Optional
+
+import numpy as np
 from numpy import array
+from shapely import wkb as shapely_wkb
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
-from utils.helpers import util_NFP, util_model  
-import math
-import uuid
-import numpy as np
+
+from utils.helpers import util_NFP, util_model
+
+NFP_CACHE_VERSION = "nfp_v1"
+DEFAULT_CACHE_DIR = ".cache"
+DEFAULT_CACHE_FILE = "nfp_cache.sqlite3"
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _default_cache_path() -> Path:
+    return _project_root() / DEFAULT_CACHE_DIR / DEFAULT_CACHE_FILE
+
+
+def _points_digest(points: np.ndarray) -> str:
+    arr = np.asarray(points, dtype=np.float64)
+    return hashlib.sha1(arr.tobytes()).hexdigest()
+
+
+def _pair_cache_key(digest_i: str, digest_j: str) -> str:
+    return f"{NFP_CACHE_VERSION}:{digest_i}:{digest_j}"
+
+
+def _compute_nfp_batch(payload):
+    """
+    Worker payload:
+      (i, points_i, jobs)
+      jobs: list[(j, points_j, cache_key)]
+    Returns:
+      list[(i, j, cache_key, geom_wkb, compute_ms)]
+    """
+    i, points_i, jobs = payload
+    points_i_arr = np.asarray(points_i, dtype=float)
+    poly_i = Polygon(points_i_arr)
+    anchor_point = (float(points_i_arr[0][0]), float(points_i_arr[0][1]))
+
+    results = []
+    for j, points_j, cache_key in jobs:
+        t0 = time.perf_counter()
+        points_j_arr = np.asarray(points_j, dtype=float)
+        poly_j = Polygon(points_j_arr)
+
+        minkowski = util_NFP.minkowski_difference(poly_i, poly_j, anchor_point)
+        base_polygon = poly_j.buffer(0)
+        geom = unary_union([base_polygon, minkowski])
+
+        results.append((i, j, cache_key, geom.wkb, (time.perf_counter() - t0) * 1000.0))
+    return results
+
+
+class _NFPDiskCache:
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(str(self.path), timeout=60.0)
+        self._ensure_schema()
+
+    def _ensure_schema(self):
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS nfp_cache (
+                cache_key TEXT PRIMARY KEY,
+                geom_wkb BLOB NOT NULL,
+                created_at REAL NOT NULL,
+                compute_ms REAL
+            )
+            """
+        )
+        self.conn.commit()
+
+    def get(self, cache_key: str, ttl_seconds: Optional[float] = None) -> Optional[bytes]:
+        row = self.conn.execute(
+            "SELECT geom_wkb, created_at FROM nfp_cache WHERE cache_key = ?",
+            (cache_key,),
+        ).fetchone()
+        if row is None:
+            return None
+
+        if ttl_seconds is not None:
+            created_at = float(row[1])
+            if time.time() - created_at > ttl_seconds:
+                return None
+
+        return bytes(row[0])
+
+    def put_many(self, rows):
+        if not rows:
+            return
+        self.conn.executemany(
+            """
+            INSERT OR REPLACE INTO nfp_cache(cache_key, geom_wkb, created_at, compute_ms)
+            VALUES (?, ?, ?, ?)
+            """,
+            rows,
+        )
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
 
 class Data:
-    def __init__(self, items: list, R: int):
+    def __init__(
+        self,
+        items: list,
+        R: int,
+        *,
+        parallel_nfp: bool = True,
+        nfp_workers: Optional[int] = None,
+        use_cache: bool = True,
+        cache_path: Optional[str] = None,
+        cache_ttl_days: Optional[float] = None,
+    ):
         self.R = R
         self.angle = 360 / R
         self.N = len(items)
+        self.parallel_nfp = bool(parallel_nfp)
+        self.nfp_workers = self._resolve_workers(nfp_workers)
+        self.use_cache = bool(use_cache)
+        self.cache_path = Path(cache_path) if cache_path else _default_cache_path()
+        self.cache_ttl_seconds = (
+            None if cache_ttl_days is None else max(0.0, float(cache_ttl_days) * 24.0 * 3600.0)
+        )
         
         if items and isinstance(items[0], Item):
             items_with_rotation, dict_rot = self._get_items_with_rotation(items)
@@ -22,8 +148,105 @@ class Data:
 
         for it in self.items:
             it.data = self
-        for it in self.items:
-            it.compute_nfp()
+        self._build_nfp()
+
+    def _resolve_workers(self, nfp_workers: Optional[int]) -> int:
+        if nfp_workers is not None:
+            return max(1, int(nfp_workers))
+        cpu = os.cpu_count() or 1
+        return max(1, min(8, cpu))
+
+    def _build_nfp(self):
+        started = time.perf_counter()
+        cache = _NFPDiskCache(self.cache_path) if self.use_cache else None
+
+        pair_geoms: Dict[tuple[int, int], object] = {}
+        pending_by_i: Dict[int, list] = {}
+        cache_rows_to_write = []
+
+        total_pairs = 0
+        cache_hits = 0
+        cache_misses = 0
+
+        points_lists = [it.points.tolist() for it in self.items]
+        digests = [_points_digest(it.points) for it in self.items]
+
+        try:
+            for i, it_i in enumerate(self.items):
+                for j, it_j in enumerate(self.items):
+                    if it_j.id == it_i.id:
+                        continue
+
+                    total_pairs += 1
+                    cache_key = _pair_cache_key(digests[i], digests[j])
+
+                    if cache is not None:
+                        cached_wkb = cache.get(cache_key, self.cache_ttl_seconds)
+                        if cached_wkb is not None:
+                            pair_geoms[(i, j)] = shapely_wkb.loads(cached_wkb)
+                            cache_hits += 1
+                            continue
+
+                    cache_misses += 1
+                    pending_by_i.setdefault(i, []).append((j, points_lists[j], cache_key))
+
+            payloads = []
+            for i, jobs in pending_by_i.items():
+                payloads.append((i, points_lists[i], jobs))
+
+            computed_pairs = 0
+            if payloads:
+                if self.parallel_nfp and self.nfp_workers > 1 and len(payloads) > 1:
+                    with ProcessPoolExecutor(max_workers=self.nfp_workers) as executor:
+                        futures = [executor.submit(_compute_nfp_batch, payload) for payload in payloads]
+                        for future in as_completed(futures):
+                            rows = future.result()
+                            now_ts = time.time()
+                            for i, j, cache_key, geom_wkb, compute_ms in rows:
+                                pair_geoms[(i, j)] = shapely_wkb.loads(geom_wkb)
+                                computed_pairs += 1
+                                if cache is not None:
+                                    cache_rows_to_write.append(
+                                        (cache_key, sqlite3.Binary(geom_wkb), now_ts, compute_ms)
+                                    )
+                else:
+                    for payload in payloads:
+                        rows = _compute_nfp_batch(payload)
+                        now_ts = time.time()
+                        for i, j, cache_key, geom_wkb, compute_ms in rows:
+                            pair_geoms[(i, j)] = shapely_wkb.loads(geom_wkb)
+                            computed_pairs += 1
+                            if cache is not None:
+                                cache_rows_to_write.append(
+                                    (cache_key, sqlite3.Binary(geom_wkb), now_ts, compute_ms)
+                                )
+
+            if cache is not None and cache_rows_to_write:
+                cache.put_many(cache_rows_to_write)
+
+            for i, it_i in enumerate(self.items):
+                nfp_dict = {}
+                for j, it_j in enumerate(self.items):
+                    if it_j.id == it_i.id:
+                        continue
+                    nfp_dict[it_j] = pair_geoms[(i, j)]
+                it_i.nfp = nfp_dict
+
+            self.nfp_stats = {
+                "pairs_total": total_pairs,
+                "cache_enabled": self.use_cache,
+                "cache_path": str(self.cache_path) if self.use_cache else None,
+                "cache_hits": cache_hits,
+                "cache_misses": cache_misses,
+                "computed_pairs": computed_pairs,
+                "cache_rows_written": len(cache_rows_to_write),
+                "parallel_enabled": self.parallel_nfp,
+                "workers_used": self.nfp_workers if self.parallel_nfp else 1,
+                "elapsed_sec": time.perf_counter() - started,
+            }
+        finally:
+            if cache is not None:
+                cache.close()
 
     def _get_items_with_rotation(self, items):
         temp_dict = {}
