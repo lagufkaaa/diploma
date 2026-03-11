@@ -86,18 +86,29 @@ def test_model_basic():
     file_path = DATA_DIR / 'car_mats_1.txt' #'test.txt'
     items = util_model.parse_items(str(file_path))
     assert len(items) > 0, "no items parsed from test file"
+    
     mdl_items = []
     for i in range( len(items)//5):
         mdl_items.append(items[5*i])
 
-    items = mdl_items[:4] 
-    # items = items #[:2]
+    items = mdl_items[:2] 
     
-    R = 3
+    R = 4
     S = 10
-    height = 200000.0
-    width = 200000.0
+    height = 125000.0
+    width = 125000.0
 
+    # file_path = DATA_DIR / 'test.txt'
+    # items = util_model.parse_items(str(file_path))
+    # assert len(items) > 0, "no items parsed from test file"
+    # items = items 
+    
+    # R = 4
+    # S = 10
+    # height = 1250.0
+    # width = 1250.0
+
+    
     total_start = time.time()
     
     data_start = time.time()
@@ -120,6 +131,16 @@ def test_model_basic():
     print(f"Problem creation time: {problem_time:.4f} seconds")
     print(f"Solve() call time: {solve_time:.4f} seconds")
     print(f"Total (Data + Problem + Solve): {total_time:.4f} seconds")
+
+    status = results.get("status")
+    has_primal = (
+        status == "OPTIMAL"
+        and isinstance(results.get("x"), list)
+        and isinstance(results.get("deltas"), list)
+        and len(results["x"]) == len(data.items)
+        and len(results["deltas"]) == len(data.items)
+    )
+    assert has_primal, f"No primal solution to inspect. Solver status: {status}"
 
     try:
         vis(data.items, results, problem.width, problem.height, problem.S)

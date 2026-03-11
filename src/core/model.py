@@ -1,4 +1,4 @@
-from ortools.linear_solver import pywraplp
+﻿from ortools.linear_solver import pywraplp
 from typing import Dict, Tuple
 
 from core.data import Data, Item
@@ -16,6 +16,7 @@ class Problem:
     ):
         self.data = data
         self.solver = pywraplp.Solver.CreateSolver(solver_name)
+        self.solver.EnableOutput()
 
         self.S = S
         self.R = R
@@ -114,7 +115,7 @@ class Problem:
             # sum_s delta(it,s) = p(it)
             self.solver.Add(sum(self.deltas[(it, s)] for s in range(self.S)) == self.p[it])
 
-            # s(it) = Σ s * delta(it,s)
+            # s(it) = ОЈ s * delta(it,s)
             self.solver.Add(self.str_var[it] == sum(s * self.deltas[(it, s)] for s in range(self.S)))
 
     def _add_boundary_constraints(self) -> None:
@@ -129,8 +130,8 @@ class Problem:
     
     def _add_single_use_constraints(self) -> None:
         """
-        Если item.id повторяется (одна форма в разных rotation / копиях),
-        разрешаем выбрать максимум одну из группы.
+        Р•СЃР»Рё item.id РїРѕРІС‚РѕСЂСЏРµС‚СЃСЏ (РѕРґРЅР° С„РѕСЂРјР° РІ СЂР°Р·РЅС‹С… rotation / РєРѕРїРёСЏС…),
+        СЂР°Р·СЂРµС€Р°РµРј РІС‹Р±СЂР°С‚СЊ РјР°РєСЃРёРјСѓРј РѕРґРЅСѓ РёР· РіСЂСѓРїРїС‹.
         """
         from collections import defaultdict
 
@@ -139,12 +140,12 @@ class Problem:
             items_by_id[it.id].append(it)
 
         for group in items_by_id.values():
-            # суммарно по группе и всем полосам не более 1
+            # СЃСѓРјРјР°СЂРЅРѕ РїРѕ РіСЂСѓРїРїРµ Рё РІСЃРµРј РїРѕР»РѕСЃР°Рј РЅРµ Р±РѕР»РµРµ 1
             all_deltas = []
             for it in group:
                 for s in range(self.S):
                     all_deltas.append(self.deltas[(it, s)])
-                # у каждой копии sum delta = p
+                # Сѓ РєР°Р¶РґРѕР№ РєРѕРїРёРё sum delta = p
                 # self.solver.Add(sum(self.deltas[(it, s)] for s in range(self.S)) == self.p[it])
 
             self.solver.Add(sum(all_deltas) <= 1)
