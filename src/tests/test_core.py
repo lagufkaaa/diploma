@@ -91,7 +91,7 @@ def test_model_basic():
     for i in range( len(items)//5):
         mdl_items.append(items[5*i])
 
-    items = mdl_items #[:4] 
+    items = mdl_items[:4] 
     
     R = 4
     S = 10
@@ -219,6 +219,8 @@ def test_model_basic():
             print(f"  items {i} and {j} overlap, area={area:.6f}, strips=({si},{sj})")
 
     assert not overlaps, "Packed items have geometric intersections!"
+
+
 def test_single_square_fits():
     square = np.array([[0.0,0.0],[80.0,0.0],[80.0,80.0],[0.0,80.0]])
     data = Data([square], R=1)
@@ -229,3 +231,52 @@ def test_single_square_fits():
     assert res['status'] == 'OPTIMAL'
     assert res['objective_value'] == pytest.approx(80.0 * 80.0)
     print(res)
+
+
+import ast
+
+def visualize_from_console(results_raw):
+    """
+    Позволяет визуализировать решение, скопированное из консоли.
+    
+    results_raw — строка или dict с результатом solve()
+    file_path — путь к файлу с item'ами
+    """
+
+    # если передали строку из консоли
+    if isinstance(results_raw, str):
+        results = ast.literal_eval(results_raw)
+    else:
+        results = results_raw
+
+    # читаем items
+    file_path = DATA_DIR / 'car_mats_2.txt' #'test.txt'
+    items = util_model.parse_items(str(file_path))
+    assert len(items) > 0, "no items parsed from test file"
+    
+    mdl_items = []
+    for i in range( len(items)//5):
+        mdl_items.append(items[5*i])
+
+    items = mdl_items[:4] 
+    
+    R = 4
+    S = 10
+    height = 3000.0
+    width = 3000.0
+
+    # создаём Data
+    data = Data(items, R)
+
+    # проверка
+    if results.get("status") != "OPTIMAL":
+        raise ValueError("solution is not optimal")
+
+    # визуализация
+    vis(data.items, results, width, height, S)
+
+    print("visualization done")
+
+
+results_raw = {'p': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0], 'x': [3000.0, 3000.0, 3000.0, 3000.0, 3000.0, 3000.0, 0.0, 2607.524101495743, 11.336920440196991, 3000.0, 3000.0, 3000.0, 0.0, 0.0, 1475.3850499987602, 0.0], 's': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 8.0, 0.0], 'deltas': [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], 'objective_value': 4806390.609765679, 'status': 'OPTIMAL'}
+visualize_from_console(results_raw)
