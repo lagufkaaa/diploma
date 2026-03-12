@@ -1,4 +1,3 @@
-import hashlib
 import math
 import os
 import sqlite3
@@ -17,25 +16,52 @@ from shapely.ops import unary_union
 from utils.helpers import util_NFP, util_model
 
 NFP_CACHE_VERSION = "nfp_v1"
-DEFAULT_CACHE_DIR = ".cache"
+DEFAULT_CACHE_DIR = Path("cache") / "nfp"
 DEFAULT_CACHE_FILE = "nfp_cache.sqlite3"
+ENV_CACHE_PATH = "DIPLOMA_NFP_CACHE_PATH"
+ENV_CACHE_DIR = "DIPLOMA_CACHE_DIR"
 
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _normalize_cache_path(path: Path) -> Path:
+    """
+    Normalize cache path to an absolute file path.
+    - Relative paths are resolved from project root.
+    - Directory-like paths are converted to <dir>/nfp_cache.sqlite3.
+    """
+    p = Path(path).expanduser()
+    if not p.is_absolute():
+        p = _project_root() / p
+
+    file_suffixes = {".sqlite", ".sqlite3", ".db"}
+    if p.suffix.lower() not in file_suffixes:
+        p = p / DEFAULT_CACHE_FILE
+
+    return p.resolve(strict=False)
+
+
 def _default_cache_path() -> Path:
-    return _project_root() / DEFAULT_CACHE_DIR / DEFAULT_CACHE_FILE
+    env_cache_path = os.getenv(ENV_CACHE_PATH)
+    if env_cache_path:
+        return _normalize_cache_path(Path(env_cache_path))
+
+    env_cache_dir = os.getenv(ENV_CACHE_DIR)
+    if env_cache_dir:
+        return _normalize_cache_path(Path(env_cache_dir))
+
+    return _normalize_cache_path(_project_root() / DEFAULT_CACHE_DIR / DEFAULT_CACHE_FILE)
 
 
-def _points_digest(points: np.ndarray) -> str:
+def _points_signature(points: np.ndarray) -> str:
     arr = np.asarray(points, dtype=np.float64)
-    return hashlib.sha1(arr.tobytes()).hexdigest()
+    return arr.tobytes().hex()
 
 
-def _pair_cache_key(digest_i: str, digest_j: str) -> str:
-    return f"{NFP_CACHE_VERSION}:{digest_i}:{digest_j}"
+def _pair_cache_key(signature_i: str, signature_j: str) -> str:
+    return f"{NFP_CACHE_VERSION}:{signature_i}:{signature_j}"
 
 
 def _compute_nfp_batch(payload):
@@ -133,7 +159,7 @@ class Data:
         self.parallel_nfp = bool(parallel_nfp)
         self.nfp_workers = self._resolve_workers(nfp_workers)
         self.use_cache = bool(use_cache)
-        self.cache_path = Path(cache_path) if cache_path else _default_cache_path()
+        self.cache_path = _normalize_cache_path(Path(cache_path)) if cache_path else _default_cache_path()
         self.cache_ttl_seconds = (
             None if cache_ttl_days is None else max(0.0, float(cache_ttl_days) * 24.0 * 3600.0)
         )
@@ -169,7 +195,7 @@ class Data:
         cache_misses = 0
 
         points_lists = [it.points.tolist() for it in self.items]
-        digests = [_points_digest(it.points) for it in self.items]
+        signatures = [_points_signature(it.points) for it in self.items]
 
         try:
             for i, it_i in enumerate(self.items):
@@ -178,7 +204,7 @@ class Data:
                         continue
 
                     total_pairs += 1
-                    cache_key = _pair_cache_key(digests[i], digests[j])
+                    cache_key = _pair_cache_key(signatures[i], signatures[j])
 
                     if cache is not None:
                         cached_wkb = cache.get(cache_key, self.cache_ttl_seconds)
