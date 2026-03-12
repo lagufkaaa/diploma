@@ -5,7 +5,7 @@ import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, MutableMapping, Optional
 
 import numpy as np
 from numpy import array
@@ -20,6 +20,7 @@ DEFAULT_CACHE_DIR = Path("cache") / "nfp"
 DEFAULT_CACHE_FILE = "nfp_cache.sqlite3"
 ENV_CACHE_PATH = "DIPLOMA_NFP_CACHE_PATH"
 ENV_CACHE_DIR = "DIPLOMA_CACHE_DIR"
+_GLOBAL_NFP_MEMORY_CACHE: Dict[str, bytes] = {}
 
 
 def _project_root() -> Path:
@@ -152,6 +153,8 @@ class Data:
         use_cache: bool = True,
         cache_path: Optional[str] = None,
         cache_ttl_days: Optional[float] = None,
+        use_memory_cache: bool = True,
+        shared_memory_cache: Optional[MutableMapping[str, bytes]] = None,
     ):
         self.R = R
         self.angle = 360 / R
@@ -163,6 +166,14 @@ class Data:
         self.cache_ttl_seconds = (
             None if cache_ttl_days is None else max(0.0, float(cache_ttl_days) * 24.0 * 3600.0)
         )
+        self.use_memory_cache = bool(use_memory_cache)
+        self.memory_cache: Optional[MutableMapping[str, bytes]] = (
+            shared_memory_cache
+            if shared_memory_cache is not None
+            else (_GLOBAL_NFP_MEMORY_CACHE if self.use_memory_cache else None)
+        )
+        if not self.use_memory_cache:
+            self.memory_cache = None
         
         if items and isinstance(items[0], Item):
             items_with_rotation, dict_rot = self._get_items_with_rotation(items)
@@ -191,6 +202,8 @@ class Data:
         cache_rows_to_write = []
 
         total_pairs = 0
+        memory_cache_hits = 0
+        disk_cache_hits = 0
         cache_hits = 0
         cache_misses = 0
 
@@ -206,10 +219,21 @@ class Data:
                     total_pairs += 1
                     cache_key = _pair_cache_key(signatures[i], signatures[j])
 
+                    if self.memory_cache is not None:
+                        cached_wkb = self.memory_cache.get(cache_key)
+                        if cached_wkb is not None:
+                            pair_geoms[(i, j)] = shapely_wkb.loads(cached_wkb)
+                            memory_cache_hits += 1
+                            cache_hits += 1
+                            continue
+
                     if cache is not None:
                         cached_wkb = cache.get(cache_key, self.cache_ttl_seconds)
                         if cached_wkb is not None:
                             pair_geoms[(i, j)] = shapely_wkb.loads(cached_wkb)
+                            if self.memory_cache is not None:
+                                self.memory_cache[cache_key] = cached_wkb
+                            disk_cache_hits += 1
                             cache_hits += 1
                             continue
 
@@ -231,6 +255,8 @@ class Data:
                             for i, j, cache_key, geom_wkb, compute_ms in rows:
                                 pair_geoms[(i, j)] = shapely_wkb.loads(geom_wkb)
                                 computed_pairs += 1
+                                if self.memory_cache is not None:
+                                    self.memory_cache[cache_key] = bytes(geom_wkb)
                                 if cache is not None:
                                     cache_rows_to_write.append(
                                         (cache_key, sqlite3.Binary(geom_wkb), now_ts, compute_ms)
@@ -242,6 +268,8 @@ class Data:
                         for i, j, cache_key, geom_wkb, compute_ms in rows:
                             pair_geoms[(i, j)] = shapely_wkb.loads(geom_wkb)
                             computed_pairs += 1
+                            if self.memory_cache is not None:
+                                self.memory_cache[cache_key] = bytes(geom_wkb)
                             if cache is not None:
                                 cache_rows_to_write.append(
                                     (cache_key, sqlite3.Binary(geom_wkb), now_ts, compute_ms)
@@ -262,6 +290,9 @@ class Data:
                 "pairs_total": total_pairs,
                 "cache_enabled": self.use_cache,
                 "cache_path": str(self.cache_path) if self.use_cache else None,
+                "memory_cache_enabled": self.memory_cache is not None,
+                "memory_cache_hits": memory_cache_hits,
+                "disk_cache_hits": disk_cache_hits,
                 "cache_hits": cache_hits,
                 "cache_misses": cache_misses,
                 "computed_pairs": computed_pairs,
