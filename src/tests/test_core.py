@@ -15,7 +15,9 @@ from core.data import Data, Item
 from core.encoding import Encoding
 from solvers.model import Problem
 from solvers.greedy_solver import GreedySolver
+from solvers.hybrid_solver import HybridSolver
 from utils.helpers import util_model
+from utils.hybrid_visualization import unpack_solution_coords, visualize_hybrid_result
 
 from shapely import affinity
 
@@ -24,6 +26,7 @@ vis = util_model().visualize_solution
 
 
 DATA_DIR = Path(__file__).resolve().parents[2] / 'data_car_mats'
+SHARED_NFP_CACHE = {}
 
 
 def test_parse_items_and_data_items():
@@ -192,14 +195,20 @@ def test_model_basic():
     
     total_start = time.time()
     
+    print("start data")
+    
     data_start = time.time()
-    data = Data(items, R)
+    data = Data(items, R, shared_memory_cache=SHARED_NFP_CACHE)
     data_time = time.time() - data_start
     
+    print("start model")
+
     problem_start = time.time()
     problem = Problem(data, S, R, height, width)
     problem_time = time.time() - problem_start
     
+    print("start solving")
+
     solve_start = time.time()
     results = problem.solve()
     solve_time = time.time() - solve_start
@@ -303,27 +312,27 @@ def test_model_basic():
 
 
 def test_greedy_basic():
-    file_path = DATA_DIR / 'car_mats_1.txt'
+    file_path = DATA_DIR / 'car_mats_2.txt'
     items = util_model.parse_items(str(file_path))
     assert len(items) > 0, "no items parsed from test file"
 
-    mdl_items = []
-    for i in range( len(items)//5):
-        mdl_items.append(items[5*i])
+    # mdl_items = []
+    # for i in range( len(items)//5):
+    #     mdl_items.append(items[5*i])
 
-    items = mdl_items[:4] 
+    # items = mdl_items[:4] 
 
     R = 4
     S = 10
-    height = 125000.0
-    width = 125000.0
+    height = 10000.0
+    width = 10000.0
 
     total_start = time.time()
 
     print("starting data")
     
     data_start = time.time()
-    data = Data(items, R, parallel_nfp=False)
+    data = Data(items, R, parallel_nfp=False, shared_memory_cache=SHARED_NFP_CACHE)
     data_time = time.time() - data_start
     
     print("starting greedy")
@@ -450,3 +459,159 @@ def test_single_square_fits():
     assert res['status'] == 'OPTIMAL'
     assert res['objective_value'] == pytest.approx(80.0 * 80.0)
     print(res)
+
+
+def test_hybrid_basic():
+    file_path = DATA_DIR / 'car_mats_2.txt'
+    items = util_model.parse_items(str(file_path))
+    assert len(items) > 0, "no items parsed from test file"
+    
+    mdl_items = []
+    for i in range( len(items)//5):
+        mdl_items.append(items[5*i])
+
+    items = mdl_items 
+
+    R = 4
+    S = 6
+    height = 5000.0
+    width = 5000.0
+
+    total_start = time.time()
+
+    print(f"hybrid input file: {file_path}")
+    print("starting data")
+
+    data_start = time.time()
+    data = Data(items, R, parallel_nfp=False, shared_memory_cache=SHARED_NFP_CACHE)
+    data_time = time.time() - data_start
+
+    print("starting hybrid")
+
+    solver_start = time.time()
+    solver = HybridSolver(data, height=height, width=width, S=S, greedy_delta_x=40.0)
+    solver_time = time.time() - solver_start
+
+    solve_start = time.time()
+    result = solver.solve(
+        unpack_last_n = 2,
+        crop_height= 2 * height / 3,
+        use_top_crop=True,
+        free_space_improvement=1.0,
+        solver_gap=0.8,
+        model_time_limit_sec=None,
+        stop_after_first_solution=False,
+        model_enable_output=True,
+        lock_greedy_unpacked=False,
+        max_model_unfixed_items=5,
+    )
+    solve_time = time.time() - solve_start
+
+    total_time = time.time() - total_start
+
+    print("--- hybrid solve results ---")
+    print({
+        "status": result.get("status"),
+        "selected_solution": result.get("selected_solution"),
+        "hybrid_stats": result.get("hybrid_stats"),
+    })
+    print(f"Data creation time: {data_time:.4f} seconds")
+    print(f"Solver creation time: {solver_time:.4f} seconds")
+    print(f"Solve() call time: {solve_time:.4f} seconds")
+    print(f"Total (Data + Solver + Solve): {total_time:.4f} seconds")
+
+    status = result.get("status")
+    assert status in {"OK", "NOT_IMPROVED", "NOT_PROVEN"}, f"Unexpected hybrid status: {status}"
+
+    stats = result.get("hybrid_stats", {})
+    greedy_obj = stats.get("greedy_objective_value")
+    model_obj = stats.get("model_objective_value")
+    final_obj = stats.get("final_objective_value")
+    improvement_pct = stats.get("free_space_improvement_percent")
+
+    print(f"greedy objective: {greedy_obj}")
+    print(f"model objective: {model_obj if model_obj is not None else final_obj}")
+    print(f"free space improvement (pp): {improvement_pct}")
+    print(f"model status: {stats.get('model_status')}")
+    print(f"full_search_mode: {stats.get('full_search_mode')}")
+    print(f"proven_global_optimal: {stats.get('proven_global_optimal')}")
+    print(f"can_claim_no_improvement: {stats.get('can_claim_no_improvement')}")
+
+    try:
+        visualize_hybrid_result(
+            data.items,
+            result,
+            width=width,
+            height=height,
+            S=S,
+            show=True,
+        )
+    except Exception as e:
+        print("visualization failed:", e)
+
+    if status in {"NOT_IMPROVED", "NOT_PROVEN"}:
+        print(f"\n--- hybrid finished with {status}: no improved final solution ---")
+        return
+
+    assert result.get("selected_solution") == "model"
+    final_solution = result.get("final", {})
+    final_status = final_solution.get("status")
+    has_primal = (
+        final_status in {"OPTIMAL", "FEASIBLE"}
+        and isinstance(final_solution.get("x"), list)
+        and len(final_solution["x"]) == len(data.items)
+        and isinstance(final_solution.get("deltas"), list)
+        and len(final_solution["deltas"]) == len(data.items)
+        and final_solution.get("objective_value") is not None
+    )
+    assert has_primal, f"No primal hybrid solution to inspect. Final status: {final_status}"
+    assert stats.get("free_space_improvement_percent", 0.0) > 0.0
+
+    print("\n--- item positions and bounds (hybrid final) ---")
+    packed_coords = unpack_solution_coords(data.items, final_solution, height=height, S=S)
+
+    print("\n--- geometry intersection check (global, hybrid) ---")
+    eps_area = 1e-4
+
+    placed = []
+    for idx, x_val, y_val in packed_coords:
+        geom_global = placed_geometry(data.items[idx], x_shift=x_val, y_shift=y_val)
+        placed.append({
+            "orig_idx": idx,
+            "x": x_val,
+            "y": y_val,
+            "geom": geom_global,
+        })
+
+    overlaps = []
+    for a_i in range(len(placed)):
+        for b_i in range(a_i + 1, len(placed)):
+            ga = placed[a_i]["geom"]
+            gb = placed[b_i]["geom"]
+
+            if (
+                ga.bounds[2] <= gb.bounds[0]
+                or gb.bounds[2] <= ga.bounds[0]
+                or ga.bounds[3] <= gb.bounds[1]
+                or gb.bounds[3] <= ga.bounds[1]
+            ):
+                continue
+
+            if ga.intersects(gb):
+                inter = ga.intersection(gb)
+                area = getattr(inter, "area", 0.0) or 0.0
+                if area > eps_area:
+                    overlaps.append((
+                        placed[a_i]["orig_idx"],
+                        placed[b_i]["orig_idx"],
+                        area,
+                        placed[a_i]["y"],
+                        placed[b_i]["y"],
+                    ))
+
+    if overlaps:
+        print("!! OVERLAPS DETECTED (hybrid):")
+        for i, j, area, yi, yj in overlaps:
+            print(f"  items {i} and {j} overlap, area={area:.6f}, y=({yi:.3f},{yj:.3f})")
+
+    assert not overlaps, "Hybrid packed items have geometric intersections!"
