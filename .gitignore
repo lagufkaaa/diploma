@@ -154,6 +154,7 @@ Thumbs.db
 *.tmp
 temp/
 tmp/
+model_formulation.tex
 .idea/workspace.xml
 .gitignore
 .gitignore

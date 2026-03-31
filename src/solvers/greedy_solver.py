@@ -52,6 +52,8 @@ class GreedySolver:
         item_groups = self._build_item_groups()
         placed: List[_Placement] = []
         packed_map: Dict[Item, _Placement] = {}
+        item_index = {it: idx for idx, it in enumerate(self.data.items)}
+        placement_order: List[int] = []
 
         # Sort items in non-increasing priority and place one rotation per item-id group.
         for rotations in item_groups:
@@ -71,6 +73,9 @@ class GreedySolver:
             if best is not None:
                 placed.append(best)
                 packed_map[best.item] = best
+                best_idx = item_index.get(best.item)
+                if best_idx is not None:
+                    placement_order.append(int(best_idx))
 
         p: List[float] = []
         x: List[float] = []
@@ -104,6 +109,7 @@ class GreedySolver:
             "y": y,
             "s": s,
             "deltas": deltas,
+            "placement_order": placement_order,
             "objective_value": objective,
             "status": "OPTIMAL",
         }

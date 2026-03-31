@@ -4,6 +4,10 @@ import numpy as np
 
 
 def _resolve_solution_y(solution: dict, idx: int, *, height: float, S: int) -> float:
+    """Возвращает y-координату детали из разных форматов решения.
+
+    Приоритет: y -> s (номер полосы) -> deltas (one-hot по полосам).
+    """
     y_vals = solution.get("y")
     if isinstance(y_vals, list) and idx < len(y_vals):
         return float(y_vals[idx])
@@ -25,6 +29,7 @@ def _resolve_solution_y(solution: dict, idx: int, *, height: float, S: int) -> f
 
 
 def unpack_solution_coords(items, solution: dict, *, height: float, S: int) -> List[Tuple[int, float, float]]:
+    """Собирает размещенные детали в формате (idx, x, y) для отрисовки."""
     p_vals = solution.get("p", [])
     x_vals = solution.get("x", [])
     packed = []
@@ -40,6 +45,7 @@ def unpack_solution_coords(items, solution: dict, *, height: float, S: int) -> L
 
 
 def _is_solution_valid(solution: dict) -> bool:
+    """Минимальная проверка, что решение можно безопасно визуализировать."""
     return (
         isinstance(solution, dict)
         and solution.get("objective_value") is not None
@@ -57,9 +63,18 @@ def visualize_hybrid_result(
     show: bool = True,
     save_path: str | None = None,
 ):
+    """Рисует 3 панели гибридной упаковки: greedy -> cut/unpack -> final/model.
+
+    Быстрые точки для правки визуализации:
+    - геометрия осей/рамки/сетки: `_setup_axis`;
+    - цвета, прозрачность, контуры и подписи деталей: `_draw_solution`;
+    - стиль подсветки окна repack и запрещенных зон: `_draw_cut_overlay`;
+    - тексты заголовков панелей и инфо-бейджей: блоки panel 1/2/3 ниже.
+    """
     import matplotlib.pyplot as plt
     import matplotlib.patches as patches
 
+    # Ключевые решения и статусы из результата гибридного алгоритма.
     final_solution = hybrid_result.get("final")
     model_solution = hybrid_result.get("model_result")
     status = str(hybrid_result.get("status", "UNKNOWN"))
@@ -70,9 +85,11 @@ def visualize_hybrid_result(
     model_valid = _is_solution_valid(model_solution)
 
     try:
+        # Стандартный режим отрисовки (интерактивный backend).
         ncols = 3
         fig, axes = plt.subplots(1, ncols, figsize=(7 * ncols, 7))
     except Exception:
+        # Fallback для headless-сред (например CI без GUI).
         plt.switch_backend("Agg")
         ncols = 3
         fig, axes = plt.subplots(1, ncols, figsize=(7 * ncols, 7))
@@ -80,9 +97,11 @@ def visualize_hybrid_result(
     if not isinstance(axes, np.ndarray):
         axes = np.array([axes])
 
+    # Дополнительная мета-информация для визуализации шага repack.
     vis = hybrid_result.get("visualization", {})
     greedy_solution = vis.get("greedy_solution", {})
     if not greedy_solution:
+        # Без отдельного greedy-снимка используем final как fallback.
         greedy_solution = hybrid_result.get("final", {}) or {}
 
     use_top_crop = bool(vis.get("use_top_crop", hybrid_result.get("hybrid_stats", {}).get("use_top_crop", False)))
@@ -99,27 +118,46 @@ def visualize_hybrid_result(
     if packing_y_min > packing_y_max:
         packing_y_min = packing_y_max
 
+    greedy_free = hybrid_result.get("hybrid_stats", {}).get("greedy_free_space_percent")
+    if greedy_free is None:
+        greedy_obj = greedy_solution.get("objective_value")
+        container_area = float(width) * float(height)
+        if greedy_obj is not None and container_area > 0.0:
+            greedy_free = 100.0 * max(0.0, container_area - float(greedy_obj)) / container_area
+
     candidate_indices = set(int(i) for i in vis.get("candidate_indices", []))
     fixed_indices = set(int(i) for i in vis.get("fixed_indices", []))
 
     def _setup_axis(ax, title: str):
+        # Контур контейнера. Можно сменить цвет/толщину рамки через color/linewidth.
         ax.axvline(x=0, color="black", linewidth=2)
         ax.axvline(x=width, color="black", linewidth=2)
         ax.axhline(y=0, color="black", linewidth=2)
         ax.axhline(y=height, color="black", linewidth=2)
+
+        # Небольшие поля вокруг контейнера (5%), чтобы фигуры не "липли" к краю окна.
+        # Если нужно плотнее кадрировать, уменьшай 0.05.
         ax.set_xlim(-width * 0.05, width * 1.05)
         ax.set_ylim(-height * 0.05, height * 1.05)
+
+        # equal: сохраняем реальные пропорции X/Y, чтобы детали не искажались визуально.
         ax.set_aspect("equal")
+
+        # Легкая сетка для ориентира; alpha можно поднять/опустить по вкусу.
         ax.grid(True, alpha=0.2)
         ax.set_title(title)
 
     def _draw_solution(ax, solution: dict, *, allowed_indices=None, highlight_indices=None, alpha=0.65):
+        # allowed_indices: рисуем только выбранные детали (например fixed).
+        # highlight_indices: визуально выделяем интересующие детали.
         packed = unpack_solution_coords(items, solution, height=height, S=S)
         packed = [
             (idx, x_val, y_val)
             for idx, x_val, y_val in packed
             if allowed_indices is None or idx in allowed_indices
         ]
+
+        # Базовая палитра фигур. Можно заменить "tab20" на другую cmap matplotlib.
         colors = plt.get_cmap("tab20")(np.linspace(0.0, 1.0, max(1, len(packed))))
 
         for vis_idx, (idx, x_val, y_val) in enumerate(packed):
@@ -129,16 +167,22 @@ def visualize_hybrid_result(
             poly = patches.Polygon(
                 coords,
                 closed=True,
+                # alpha для обычных/выделенных деталей настраивается здесь.
                 alpha=0.78 if is_highlight else alpha,
+                # Цвета выделения кандидатов на repack.
                 facecolor="#fb923c" if is_highlight else colors[vis_idx],
                 edgecolor="#7c2d12" if is_highlight else "black",
                 linewidth=1.8 if is_highlight else 1.0,
+                # Штриховка выделенных деталей (можно убрать, поставив None).
                 hatch="//" if is_highlight else None,
             )
             ax.add_patch(poly)
+            # Подпись индекса детали: цвет/размер/насыщенность меняются тут.
             ax.text(coords[0][0], coords[0][1], str(idx), color="white", fontsize=8, weight="bold")
 
     def _draw_cut_overlay(ax):
+        # Визуализация окна repack:
+        # y0..y1 - где модели разрешено переставлять детали после cut.
         if not use_top_crop:
             return
         y0 = packing_y_min
@@ -146,7 +190,8 @@ def visualize_hybrid_result(
         if y0 <= 0.0 and y1 >= float(height):
             return
 
-        # forbidden region below the cropped top container
+        # Запрещенная зона ниже окна repack.
+        # Если хочешь менее агрессивную подсветку, уменьшай alpha.
         if y0 > 0.0:
             bottom_forbidden = patches.Rectangle(
                 (0.0, 0.0),
@@ -161,7 +206,7 @@ def visualize_hybrid_result(
             )
             ax.add_patch(bottom_forbidden)
 
-        # forbidden region above the cropped container (if packing_y_max < height)
+        # Запрещенная зона выше окна repack (если y1 < высоты контейнера).
         if y1 < float(height):
             top_forbidden = patches.Rectangle(
                 (0.0, y1),
@@ -176,7 +221,7 @@ def visualize_hybrid_result(
             )
             ax.add_patch(top_forbidden)
 
-        # new model container (where repacking is allowed)
+        # Контур разрешенного окна модели + горизонтальные разделители.
         allowed_rect = patches.Rectangle(
             (0.0, y0),
             float(width),
@@ -188,44 +233,49 @@ def visualize_hybrid_result(
         ax.add_patch(allowed_rect)
         ax.axhline(y=y0, color="#0f766e", linewidth=2.0, linestyle="--")
         ax.axhline(y=y1, color="#0f766e", linewidth=2.0, linestyle="--")
-        ax.text(
-            0.02,
-            0.98,
-            f"Model window: y in [{y0:.1f}, {y1:.1f}]",
-            transform=ax.transAxes,
-            va="top",
-            ha="left",
-            fontsize=9,
-            bbox=dict(facecolor="white", alpha=0.75, edgecolor="#0f766e"),
-        )
 
-    # panel 1: original greedy backpack
+        # Лейбл окна repack намеренно убран по требованию пользователя.
+
+    # Панель 1: исходная greedy-укладка (кандидаты подсвечиваются).
     ax0 = axes[0]
     _draw_solution(ax0, greedy_solution, highlight_indices=candidate_indices)
-    _draw_cut_overlay(ax0)
-    _setup_axis(ax0, "Original backpack (greedy)")
+    # Меняй подпись панели здесь.
+    _setup_axis(ax0, "Initial Greedy Packing")
+    if greedy_free is not None:
+        ax0.text(
+            0.02,
+            0.98,
+            f"Free: {float(greedy_free):.2f}%",
+            transform=ax0.transAxes,
+            va="top",
+            ha="left",
+            bbox=dict(facecolor="white", alpha=0.65, edgecolor="none"),
+        )
 
-    # panel 2: backpack after cut/unpack
+    # Панель 2: состояние после cut/unpack (оставляем только fixed-детали).
     ax1 = axes[1]
     if fixed_indices:
         _draw_solution(ax1, greedy_solution, allowed_indices=fixed_indices, alpha=0.60)
     _draw_cut_overlay(ax1)
-    _setup_axis(ax1, "Backpack after unpack + cut")
+    # Меняй подпись панели здесь.
+    _setup_axis(ax1, "Partial Packing After Unpack and Crop")
 
-    # panel 3: final solution, model candidate, or explicit infeasible info
+    # Панель 3: финал, либо кандидат модели, либо сообщение об infeasible.
     ax2 = axes[2]
     if final_valid:
         _draw_solution(ax2, final_solution)
         _draw_cut_overlay(ax2)
         if selected_solution == "greedy":
-            title = "Final solution (greedy fallback)"
+            title = "Final Packing (Greedy Baseline)"
         elif status == "NOT_PROVEN":
-            title = "Final model solution (NOT_PROVEN)"
+            title = "Final Packing (Hybrid, Not Proven Optimal)"
         else:
-            title = "Final improved solution"
+            title = "Final Packing (Hybrid Improved)"
+        # Меняй текст заголовка финальной панели здесь.
         _setup_axis(ax2, title)
         free_space = hybrid_result.get("hybrid_stats", {}).get("final_free_space_percent")
         if free_space is not None:
+            # Инфо-бейдж со свободной площадью (позиция/стиль задаются тут).
             ax2.text(
                 0.02,
                 0.98,
@@ -238,9 +288,10 @@ def visualize_hybrid_result(
     elif model_valid:
         _draw_solution(ax2, model_solution)
         _draw_cut_overlay(ax2)
-        _setup_axis(ax2, f"Model candidate ({status})")
+        _setup_axis(ax2, f"Candidate Packing from Model ({status})")
         model_free = hybrid_result.get("hybrid_stats", {}).get("model_free_space_percent")
         if model_free is not None:
+            # Инфо-бейдж для кандидатного решения модели.
             ax2.text(
                 0.02,
                 0.98,
@@ -252,6 +303,7 @@ def visualize_hybrid_result(
             )
     else:
         _draw_cut_overlay(ax2)
+        # Сценарий, когда модель не вернула допустимую укладку.
         ax2.text(
             0.5,
             0.55,
@@ -270,11 +322,13 @@ def visualize_hybrid_result(
             transform=ax2.transAxes,
             bbox=dict(facecolor="white", alpha=0.7),
         )
-        _setup_axis(ax2, "Model stage")
+        _setup_axis(ax2, "Model Search Outcome")
 
     if save_path:
+        # При необходимости сохраняем итоговую картинку на диск.
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
     if show:
+        # В интерактивном режиме открываем окно matplotlib.
         plt.show()
 
     return fig, axes

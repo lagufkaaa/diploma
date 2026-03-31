@@ -1,4 +1,5 @@
 ﻿import time
+import random
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
@@ -63,6 +64,7 @@ class HybridSolver:
         *,
         unpack_last_n: int,
         crop_height: float,
+        greedy_delta_x: Optional[float] = None,
         use_top_crop: bool = True,
         free_space_improvement: float = 1.0,
         solver_gap: float = 1.0,
@@ -71,6 +73,9 @@ class HybridSolver:
         lock_greedy_unpacked: bool = True,
         max_model_unfixed_items: Optional[int] = None,
         model_enable_output: bool = False,
+        random_iterations: int = 1,
+        random_seed: Optional[int] = 0,
+        random_sample_size: Optional[int] = None,
     ):
         t0 = time.perf_counter()
         crop_h_clamped = max(0.0, min(self.height, float(crop_height)))
@@ -83,12 +88,13 @@ class HybridSolver:
             packing_y_min = 0.0
             packing_y_max = self.height
 
+        greedy_dx = self.greedy_delta_x if greedy_delta_x is None else float(greedy_delta_x)
         greedy = GreedySolver(
             self.data,
             height=self.height,
             width=self.width,
             S=self.S,
-            delta_x=self.greedy_delta_x,
+            delta_x=greedy_dx,
             eps_area=self.greedy_eps_area,
         )
         greedy_start = time.perf_counter()
@@ -118,7 +124,7 @@ class HybridSolver:
             }
 
         packed_records = self._collect_packed_records(greedy_results)
-        packed_records.sort(key=lambda rec: (rec.y, rec.x))
+        self._sort_packed_records_by_greedy_time(packed_records, greedy_results)
         packed_ids = {rec.item.id for rec in packed_records}
         all_item_ids = {it.id for it in self.data.items}
         greedy_unpacked_ids = all_item_ids - packed_ids
@@ -126,17 +132,165 @@ class HybridSolver:
         candidate_ids = self._select_candidate_ids(
             packed_records=packed_records,
             unpack_last_n=unpack_last_n,
-            max_model_unfixed_items=max_model_unfixed_items,
+            max_model_unfixed_items=None,
         )
-        model_item_ids: Set[object] = set(candidate_ids)
-        if not lock_greedy_unpacked:
-            model_item_ids |= greedy_unpacked_ids
+        unpack_ids: Set[object] = set(candidate_ids)
 
-        fixed_records = [rec for rec in packed_records if rec.item.id not in model_item_ids]
-        forced_unpacked_ids = greedy_unpacked_ids - model_item_ids
+        model_pool_ids: Set[object] = set(unpack_ids)
+        if not lock_greedy_unpacked:
+            extra_unpacked_ids: List[object] = []
+            seen_extra_ids: Set[object] = set()
+            for it in self.data.items:
+                item_id = it.id
+                if item_id in unpack_ids:
+                    continue
+                if item_id not in greedy_unpacked_ids:
+                    continue
+                if item_id in seen_extra_ids:
+                    continue
+                seen_extra_ids.add(item_id)
+                extra_unpacked_ids.append(item_id)
+
+            if max_model_unfixed_items is not None:
+                extra_limit = max(0, int(max_model_unfixed_items))
+                extra_unpacked_ids = extra_unpacked_ids[:extra_limit]
+
+            model_pool_ids |= set(extra_unpacked_ids)
+
+        greedy_obj = float(greedy_results.get("objective_value") or 0.0)
+        greedy_free = self._free_space_percent(greedy_obj)
+
+        target_free_space = None
+        if free_space_improvement is not None:
+            free_space_improvement = max(0.0, float(free_space_improvement))
+            target_free_space = max(0.0, greedy_free - free_space_improvement)
+
+        ordered_pool_ids: List[object] = []
+        seen_pool_ids: Set[object] = set()
+        for it in self.data.items:
+            if it.id in model_pool_ids and it.id not in seen_pool_ids:
+                seen_pool_ids.add(it.id)
+                ordered_pool_ids.append(it.id)
+
+        if random_sample_size is None:
+            sample_size = max(0, int(unpack_last_n)) + 1
+        else:
+            sample_size = max(0, int(random_sample_size))
+        random_iterations = max(1, int(random_iterations))
+        rng = random.Random(random_seed) if random_seed is not None else random.Random()
+
+        fixed_records_base = [rec for rec in packed_records if rec.item.id not in unpack_ids]
+        fixed_item_assignments = {rec.item: (float(rec.x), int(rec.strip)) for rec in fixed_records_base}
+        fixed_ids_base = {rec.item.id for rec in fixed_records_base}
+        unpacked_greedy_count = len(packed_ids - fixed_ids_base)
+
+        min_total_objective = None
+        if target_free_space is not None:
+            container_area = self.width * self.height
+            min_total_objective = container_area * (1.0 - float(target_free_space) / 100.0)
+
+        best_model_results: dict = {"status": "NOT_SOLVED", "objective_value": None}
+        best_model_status = "NOT_SOLVED"
+        best_model_obj: Optional[float] = None
+        best_model_ok = False
+        best_model_status_rank = 0
+        best_model_iteration = 1
+        best_model_item_ids: Set[object] = set()
+        best_forced_unpacked_ids: Set[object] = set(greedy_unpacked_ids | unpack_ids)
+        model_time = 0.0
+
+        def _status_rank(status_val: str) -> int:
+            if status_val == "OPTIMAL":
+                return 2
+            if status_val == "FEASIBLE":
+                return 1
+            return 0
+
+        for iter_idx in range(random_iterations):
+            if not ordered_pool_ids:
+                model_item_ids: Set[object] = set()
+            else:
+                k = min(len(ordered_pool_ids), sample_size)
+                if k >= len(ordered_pool_ids):
+                    sampled_ids = list(ordered_pool_ids)
+                else:
+                    sampled_ids = rng.sample(ordered_pool_ids, k=k)
+                model_item_ids = set(sampled_ids)
+
+            fixed_records = fixed_records_base
+            forced_unpacked_ids = (greedy_unpacked_ids | unpack_ids) - model_item_ids
+
+            iter_start = time.perf_counter()
+            problem = HybridProblem(
+                self.data,
+                S=self.S,
+                R=self.data.R,
+                height=self.height,
+                width=self.width,
+                solver_name=self.solver_name,
+                enable_output=model_enable_output,
+                fixed_item_assignments=fixed_item_assignments,
+                forced_unpacked_ids=forced_unpacked_ids,
+                restricted_item_ids=set(model_item_ids) if use_top_crop else set(),
+                packing_y_min=packing_y_min if use_top_crop else None,
+                packing_y_max=packing_y_max if use_top_crop else None,
+                min_objective_value=min_total_objective,
+                relative_gap=solver_gap,
+                time_limit_sec=model_time_limit_sec,
+                stop_after_first_solution=stop_after_first_solution,
+            )
+            raw_model_results = problem.solve()
+            model_results = self._assemble_solution_with_fixed_records(
+                fixed_records=fixed_records,
+                model_results=raw_model_results,
+                model_item_ids=model_item_ids,
+            )
+            if model_results.get("objective_value") is not None and self._has_solution_overlaps(model_results):
+                model_results = {"status": "INFEASIBLE", "objective_value": None}
+            iter_time = time.perf_counter() - iter_start
+            model_time += iter_time
+
+            iter_status = str(model_results.get("status", "NOT_SOLVED"))
+            iter_obj = model_results.get("objective_value")
+            iter_ok = iter_obj is not None and iter_status in {"OPTIMAL", "FEASIBLE"}
+            iter_rank = _status_rank(iter_status)
+
+            choose_iteration = iter_idx == 0
+            if not choose_iteration:
+                if iter_ok and not best_model_ok:
+                    choose_iteration = True
+                elif iter_ok and best_model_ok:
+                    best_obj_cmp = float(best_model_obj) if best_model_obj is not None else float("-inf")
+                    iter_obj_cmp = float(iter_obj)
+                    if iter_obj_cmp > best_obj_cmp + 1e-9:
+                        choose_iteration = True
+                    elif abs(iter_obj_cmp - best_obj_cmp) <= 1e-9 and iter_rank > best_model_status_rank:
+                        choose_iteration = True
+                elif not best_model_ok:
+                    if best_model_status == "NOT_SOLVED" and iter_status != "NOT_SOLVED":
+                        choose_iteration = True
+                    elif iter_rank > best_model_status_rank:
+                        choose_iteration = True
+
+            if choose_iteration:
+                best_model_results = model_results
+                best_model_status = iter_status
+                best_model_obj = float(iter_obj) if iter_obj is not None else None
+                best_model_ok = bool(iter_ok)
+                best_model_status_rank = int(iter_rank)
+                best_model_iteration = int(iter_idx + 1)
+                best_model_item_ids = set(model_item_ids)
+                best_forced_unpacked_ids = set(forced_unpacked_ids)
+
+        model_results = best_model_results
+        model_item_ids = best_model_item_ids
+        fixed_records = fixed_records_base
+        forced_unpacked_ids = best_forced_unpacked_ids
+        selected_packed_in_model = sum(1 for rec in packed_records if rec.item.id in model_item_ids)
+        selected_unpacked_in_model = len(model_item_ids - packed_ids)
 
         packed_indices = [rec.idx for rec in packed_records]
-        candidate_indices = [rec.idx for rec in packed_records if rec.item.id in candidate_ids]
+        candidate_indices = [rec.idx for rec in packed_records if rec.item.id in unpack_ids]
         fixed_indices = [rec.idx for rec in fixed_records]
 
         visualization_payload = {
@@ -150,53 +304,6 @@ class HybridSolver:
             "packing_y_min": packing_y_min,
             "packing_y_max": packing_y_max,
         }
-
-        greedy_obj = float(greedy_results.get("objective_value") or 0.0)
-        greedy_free = self._free_space_percent(greedy_obj)
-
-        target_free_space = None
-        if free_space_improvement is not None:
-            free_space_improvement = max(0.0, float(free_space_improvement))
-            target_free_space = max(0.0, greedy_free - free_space_improvement)
-
-        fixed_area = sum(float(rec.item.area) for rec in fixed_records)
-        min_local_objective = None
-        if target_free_space is not None:
-            container_area = self.width * self.height
-            min_total_area = container_area * (1.0 - float(target_free_space) / 100.0)
-            min_local_objective = max(0.0, min_total_area - fixed_area)
-
-        model_start = time.perf_counter()
-        model_data = self._build_local_model_data(model_item_ids)
-        if model_data is None:
-            local_results = {"status": "OPTIMAL", "objective_value": 0.0, "p": [], "x": [], "s": [], "deltas": []}
-        else:
-            problem = HybridProblem(
-                model_data,
-                S=self.S,
-                R=model_data.R,
-                height=model_height,
-                width=self.width,
-                solver_name=self.solver_name,
-                enable_output=model_enable_output,
-                min_objective_value=min_local_objective,
-                relative_gap=solver_gap,
-                time_limit_sec=model_time_limit_sec,
-                stop_after_first_solution=stop_after_first_solution,
-            )
-            local_results = problem.solve()
-
-        model_results = self._assemble_full_solution(
-            fixed_records=fixed_records,
-            model_data=model_data,
-            local_results=local_results,
-            y_offset=y_offset,
-            local_height=model_height,
-        )
-        if model_results.get("objective_value") is not None and self._has_solution_overlaps(model_results):
-            model_results["status"] = "INFEASIBLE"
-            model_results["objective_value"] = None
-        model_time = time.perf_counter() - model_start
 
         model_obj = model_results.get("objective_value")
         model_status = str(model_results.get("status", ""))
@@ -237,10 +344,20 @@ class HybridSolver:
                     "use_top_crop": bool(use_top_crop),
                     "used_crop_height": crop_h_clamped,
                     "candidate_items_for_model": len(candidate_ids),
+                    "unpack_ids_count": len(unpack_ids),
+                    "actual_unpacked_from_greedy": int(unpacked_greedy_count),
+                    "model_pool_ids_count": len(model_pool_ids),
                     "model_item_ids_count": len(model_item_ids),
+                    "selected_packed_items_for_model": int(selected_packed_in_model),
+                    "selected_unpacked_items_for_model": int(selected_unpacked_in_model),
                     "restricted_items_in_window": len(model_item_ids),
                     "fixed_items_in_model": len(fixed_records),
                     "forced_unpacked_ids": len(forced_unpacked_ids),
+                    "random_iterations_requested": int(random_iterations),
+                    "random_iterations_executed": int(random_iterations),
+                    "random_sample_size_requested": int(sample_size),
+                    "random_sample_size": int(min(len(ordered_pool_ids), sample_size)),
+                    "best_model_iteration": int(best_model_iteration),
                     "greedy_objective_value": greedy_obj,
                     "model_objective_value": float(model_obj) if model_obj is not None else None,
                     "final_objective_value": final_objective,
@@ -252,6 +369,7 @@ class HybridSolver:
                     "greedy_time_sec": greedy_time,
                     "model_time_sec": model_time,
                     "total_time_sec": time.perf_counter() - t0,
+                    "greedy_delta_x_used": float(greedy_dx),
                     "model_status": model_status,
                     "full_search_mode": full_search_mode,
                     "proven_global_optimal": proven_global_optimal,
@@ -276,10 +394,20 @@ class HybridSolver:
                 "use_top_crop": bool(use_top_crop),
                 "used_crop_height": crop_h_clamped,
                 "candidate_items_for_model": len(candidate_ids),
+                "unpack_ids_count": len(unpack_ids),
+                "actual_unpacked_from_greedy": int(unpacked_greedy_count),
+                "model_pool_ids_count": len(model_pool_ids),
                 "model_item_ids_count": len(model_item_ids),
+                "selected_packed_items_for_model": int(selected_packed_in_model),
+                "selected_unpacked_items_for_model": int(selected_unpacked_in_model),
                 "restricted_items_in_window": len(model_item_ids),
                 "fixed_items_in_model": len(fixed_records),
                 "forced_unpacked_ids": len(forced_unpacked_ids),
+                "random_iterations_requested": int(random_iterations),
+                "random_iterations_executed": int(random_iterations),
+                "random_sample_size_requested": int(sample_size),
+                "random_sample_size": int(min(len(ordered_pool_ids), sample_size)),
+                "best_model_iteration": int(best_model_iteration),
                 "greedy_objective_value": greedy_obj,
                 "final_objective_value": final_obj,
                 "greedy_free_space_percent": greedy_free,
@@ -289,6 +417,7 @@ class HybridSolver:
                 "greedy_time_sec": greedy_time,
                 "model_time_sec": model_time,
                 "total_time_sec": time.perf_counter() - t0,
+                "greedy_delta_x_used": float(greedy_dx),
                 "model_status": model_status,
                 "full_search_mode": full_search_mode,
                 "proven_global_optimal": proven_global_optimal,
@@ -308,7 +437,11 @@ class HybridSolver:
 
             x_val = float(x_vals[idx]) if idx < len(x_vals) else 0.0
             y_val = float(y_vals[idx]) if idx < len(y_vals) else 0.0
-            strip_val = int(round(float(s_vals[idx]))) if idx < len(s_vals) else self._strip_from_y(y_val)
+            if idx < len(s_vals):
+                strip_hint = int(round(float(s_vals[idx])))
+            else:
+                strip_hint = self._strip_from_y(y_val)
+            strip_val = self._project_strip_for_model(item, y_val, strip_hint)
 
             packed_records.append(
                 _PackedRecord(
@@ -350,6 +483,31 @@ class HybridSolver:
 
         return set(candidate_ids)
 
+    def _sort_packed_records_by_greedy_time(self, packed_records: List[_PackedRecord], greedy_results: dict) -> None:
+        placement_order = greedy_results.get("placement_order", [])
+        if not isinstance(placement_order, list) or not placement_order:
+            packed_records.sort(key=lambda rec: (rec.y, rec.x))
+            return
+
+        rank_by_idx: Dict[int, int] = {}
+        rank = 0
+        for raw_idx in placement_order:
+            try:
+                idx = int(raw_idx)
+            except Exception:
+                continue
+            if idx in rank_by_idx:
+                continue
+            rank_by_idx[idx] = rank
+            rank += 1
+
+        if not rank_by_idx:
+            packed_records.sort(key=lambda rec: (rec.y, rec.x))
+            return
+
+        fallback_rank = len(rank_by_idx) + 1
+        packed_records.sort(key=lambda rec: (rank_by_idx.get(int(rec.idx), fallback_rank), int(rec.idx)))
+
     def _build_partial_assignment(
         self,
         *,
@@ -385,6 +543,30 @@ class HybridSolver:
         h = self.height / self.S
         idx = int(y_val // h)
         return max(0, min(self.S - 1, idx))
+
+    def _project_strip_for_model(self, item: Item, y_val: float, strip_hint: Optional[int] = None) -> int:
+        if self.S <= 1:
+            return 0
+
+        h = self.height / self.S
+        if h <= 0.0:
+            return 0
+
+        if strip_hint is None:
+            strip_nominal = int(round(float(y_val) / h))
+        else:
+            strip_nominal = int(strip_hint)
+
+        s_min = int(np.ceil((-float(item.ymin)) / h - 1e-9))
+        s_max = int(np.floor((self.height - float(item.ymax)) / h + 1e-9))
+
+        s_min = max(0, min(self.S - 1, s_min))
+        s_max = max(0, min(self.S - 1, s_max))
+        strip_nominal = max(0, min(self.S - 1, strip_nominal))
+
+        if s_min > s_max:
+            return strip_nominal
+        return max(s_min, min(s_max, strip_nominal))
 
     def _free_space_percent(self, packed_area: float) -> float:
         container_area = self.width * self.height
@@ -435,6 +617,86 @@ class HybridSolver:
             use_memory_cache=bool(getattr(self.data, "use_memory_cache", True)),
             shared_memory_cache=getattr(self.data, "memory_cache", None),
         )
+
+    def _assemble_solution_with_fixed_records(
+        self,
+        *,
+        fixed_records: List[_PackedRecord],
+        model_results: dict,
+        model_item_ids: Set[object],
+    ) -> dict:
+        status = str(model_results.get("status", "NOT_SOLVED"))
+        if status not in {"OPTIMAL", "FEASIBLE"}:
+            return {"status": status, "objective_value": None}
+
+        n_full = len(self.data.items)
+        p = [0.0 for _ in range(n_full)]
+        x = [0.0 for _ in range(n_full)]
+        y = [0.0 for _ in range(n_full)]
+        s = [0.0 for _ in range(n_full)]
+        deltas = [[0.0 for _ in range(self.S)] for _ in range(n_full)]
+
+        used_ids: Set[object] = set()
+        total_area = 0.0
+        h = self.height / self.S if self.S > 0 else self.height
+
+        for rec in fixed_records:
+            idx = int(rec.idx)
+            if idx < 0 or idx >= n_full:
+                continue
+            strip_idx = self._strip_from_y(float(rec.y))
+            p[idx] = 1.0
+            x[idx] = float(rec.x)
+            y[idx] = float(rec.y)
+            s[idx] = float(strip_idx)
+            if self.S > 0:
+                deltas[idx][strip_idx] = 1.0
+            used_ids.add(rec.item.id)
+            total_area += float(rec.item.area)
+
+        raw_p = model_results.get("p", [])
+        raw_x = model_results.get("x", [])
+        raw_s = model_results.get("s", [])
+        raw_deltas = model_results.get("deltas", [])
+
+        for idx, it in enumerate(self.data.items):
+            if it.id in used_ids:
+                continue
+            if model_item_ids and it.id not in model_item_ids:
+                continue
+            if idx >= len(raw_p) or float(raw_p[idx]) <= 0.5:
+                continue
+
+            if idx < len(raw_s):
+                strip_idx = int(round(float(raw_s[idx])))
+            elif idx < len(raw_deltas):
+                row = raw_deltas[idx] if isinstance(raw_deltas[idx], list) else []
+                strip_idx = next((j for j, val in enumerate(row) if float(val) > 0.5), 0)
+            else:
+                strip_idx = 0
+
+            strip_idx = max(0, min(self.S - 1, strip_idx))
+            x_val = float(raw_x[idx]) if idx < len(raw_x) else 0.0
+            y_val = float(strip_idx) * float(h)
+
+            p[idx] = 1.0
+            x[idx] = x_val
+            y[idx] = y_val
+            s[idx] = float(strip_idx)
+            if self.S > 0:
+                deltas[idx][strip_idx] = 1.0
+            used_ids.add(it.id)
+            total_area += float(it.area)
+
+        return {
+            "status": status,
+            "p": p,
+            "x": x,
+            "y": y,
+            "s": s,
+            "deltas": deltas,
+            "objective_value": total_area,
+        }
 
     def _assemble_full_solution(
         self,
@@ -532,13 +794,20 @@ class HybridSolver:
         p_vals = solution.get("p", [])
         x_vals = solution.get("x", [])
         y_vals = solution.get("y", [])
+        s_vals = solution.get("s", [])
+        h = self.height / self.S if self.S > 0 else self.height
 
         placed = []
         for idx, it in enumerate(self.data.items):
             if idx >= len(p_vals) or float(p_vals[idx]) <= 0.5:
                 continue
             x_val = float(x_vals[idx]) if idx < len(x_vals) else 0.0
-            y_val = float(y_vals[idx]) if idx < len(y_vals) else 0.0
+            if idx < len(y_vals):
+                y_val = float(y_vals[idx])
+            elif idx < len(s_vals):
+                y_val = float(s_vals[idx]) * float(h)
+            else:
+                y_val = 0.0
             placed.append(self._placed_geometry(it, x_val, y_val))
 
         eps_area = max(1e-9, float(self.greedy_eps_area))

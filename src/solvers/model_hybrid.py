@@ -21,6 +21,8 @@ class Problem:
         fixed_item_assignments: Optional[Dict[Item, Tuple[float, int]]] = None,
         forced_unpacked_ids: Optional[Set[object]] = None,
         restricted_item_ids: Optional[Set[object]] = None,
+        packing_x_min: Optional[float] = None,
+        packing_x_max: Optional[float] = None,
         packing_y_min: Optional[float] = None,
         packing_y_max: Optional[float] = None,
         packing_height_limit: Optional[float] = None,
@@ -50,6 +52,15 @@ class Problem:
         self.forced_unpacked_ids = set(forced_unpacked_ids or set())
         self.restricted_item_ids = set(restricted_item_ids or set())
 
+        x_min = None if packing_x_min is None else float(packing_x_min)
+        x_max = None if packing_x_max is None else float(packing_x_max)
+        if x_min is not None:
+            x_min = max(0.0, min(x_min, self.width))
+        if x_max is not None:
+            x_max = max(0.0, min(x_max, self.width))
+        if x_min is not None and x_max is not None and x_min > x_max:
+            x_min = x_max
+
         y_min = None if packing_y_min is None else float(packing_y_min)
         y_max = None if packing_y_max is None else float(packing_y_max)
         if y_min is not None:
@@ -65,6 +76,8 @@ class Problem:
         if y_min is not None and y_max is not None and y_min > y_max:
             y_min = y_max
 
+        self.packing_x_min = x_min
+        self.packing_x_max = x_max
         self.packing_y_min = y_min
         self.packing_y_max = y_max
         self.min_objective_value = min_objective_value
@@ -80,7 +93,7 @@ class Problem:
         self.C: Dict[Tuple[Item, Item, int], int] = {}
         self.build_abc()
 
-        self.big_M = 1e8
+        self.big_M = 1e5
 
         self.x: Dict[Item, pywraplp.Variable] = {}
         self.p: Dict[Item, pywraplp.Variable] = {}
@@ -170,16 +183,22 @@ class Problem:
             restrict_this_item = (
                 bool(self.restricted_item_ids) and (it.id in self.restricted_item_ids)
             )
+            x_lower = 0.0
+            x_upper = float(self.width)
             y_lower = 0.0
             y_upper = float(self.height)
             if restrict_this_item:
+                if self.packing_x_min is not None:
+                    x_lower = float(self.packing_x_min)
+                if self.packing_x_max is not None:
+                    x_upper = float(self.packing_x_max)
                 if self.packing_y_min is not None:
                     y_lower = float(self.packing_y_min)
                 if self.packing_y_max is not None:
                     y_upper = float(self.packing_y_max)
 
-            self.solver.Add(self.x[it] + it.xmax <= self.width + self.big_M * (1 - self.p[it]))
-            self.solver.Add(self.x[it] + it.xmin >= -self.big_M * (1 - self.p[it]))
+            self.solver.Add(self.x[it] + it.xmax <= x_upper + self.big_M * (1 - self.p[it]))
+            self.solver.Add(self.x[it] + it.xmin >= x_lower - self.big_M * (1 - self.p[it]))
             self.solver.Add(self.str_var[it] * self.h + it.ymin >= y_lower - self.big_M * (1 - self.p[it]))
             self.solver.Add(self.str_var[it] * self.h + it.ymax <= y_upper + self.big_M * (1 - self.p[it]))
 
@@ -264,9 +283,16 @@ class Problem:
         self.solver.Add(objective_expr >= float(min_objective))
 
     def _add_non_overlap_constraints(self) -> None:
+        # Greedy-fixed placements are continuous by Y, while this model is strip-indexed.
+        # Fixed-vs-fixed checks in strip space can be inconsistent with the original greedy
+        # geometry, so we keep overlap checks only for pairs involving at least one variable item.
+        fixed_items = set(self.fixed_item_assignments.keys())
+
         for i in self.data.items:
             for j in self.data.items:
                 if i.id == j.id:
+                    continue
+                if i in fixed_items and j in fixed_items:
                     continue
 
                 if hasattr(self.encoding, "k_bounds"):

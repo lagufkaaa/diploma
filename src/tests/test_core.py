@@ -16,8 +16,10 @@ from core.encoding import Encoding
 from solvers.model import Problem
 from solvers.greedy_solver import GreedySolver
 from solvers.hybrid_solver import HybridSolver
+from solvers.hybrid_solver_width import HybridSolverWidth
 from utils.helpers import util_model
 from utils.hybrid_visualization import unpack_solution_coords, visualize_hybrid_result
+from utils.hybrid_visualization_width import visualize_hybrid_result_width
 
 from shapely import affinity
 
@@ -460,18 +462,13 @@ def test_single_square_fits():
     assert res['objective_value'] == pytest.approx(80.0 * 80.0)
     print(res)
 
+# 
 
 def test_hybrid_basic():
     file_path = DATA_DIR / 'car_mats_2.txt'
     items = util_model.parse_items(str(file_path))
     assert len(items) > 0, "no items parsed from test file"
     
-    mdl_items = []
-    for i in range( len(items)//5):
-        mdl_items.append(items[5*i])
-
-    items = mdl_items 
-
     R = 4
     S = 6
     height = 5000.0
@@ -489,21 +486,30 @@ def test_hybrid_basic():
     print("starting hybrid")
 
     solver_start = time.time()
-    solver = HybridSolver(data, height=height, width=width, S=S, greedy_delta_x=40.0)
+    solver = HybridSolver(data, height=height, width=width, S=S, greedy_delta_x=10.0)
     solver_time = time.time() - solver_start
+
+    random_iterations = 3
+    random_seed = 212
+    random_sample_size = 10
+
+    unpack_last_n = 5
 
     solve_start = time.time()
     result = solver.solve(
-        unpack_last_n = 2,
-        crop_height= 2 * height / 3,
+        unpack_last_n = unpack_last_n,
+        crop_height= 120,
         use_top_crop=True,
-        free_space_improvement=1.0,
-        solver_gap=0.8,
+        free_space_improvement=0.01,
+        solver_gap=1.0,
         model_time_limit_sec=None,
         stop_after_first_solution=False,
         model_enable_output=True,
         lock_greedy_unpacked=False,
         max_model_unfixed_items=5,
+        random_iterations=random_iterations,
+        random_seed=random_seed,
+        random_sample_size=random_sample_size,
     )
     solve_time = time.time() - solve_start
 
@@ -533,9 +539,27 @@ def test_hybrid_basic():
     print(f"model objective: {model_obj if model_obj is not None else final_obj}")
     print(f"free space improvement (pp): {improvement_pct}")
     print(f"model status: {stats.get('model_status')}")
+    print(f"random_iterations_requested: {stats.get('random_iterations_requested')}")
+    print(f"random_iterations_executed: {stats.get('random_iterations_executed')}")
+    print(f"random_sample_size_requested: {stats.get('random_sample_size_requested')}")
+    print(f"random_sample_size: {stats.get('random_sample_size')}")
+    print(f"best_model_iteration: {stats.get('best_model_iteration')}")
     print(f"full_search_mode: {stats.get('full_search_mode')}")
     print(f"proven_global_optimal: {stats.get('proven_global_optimal')}")
     print(f"can_claim_no_improvement: {stats.get('can_claim_no_improvement')}")
+
+    assert stats.get("random_iterations_requested") == random_iterations
+    assert stats.get("random_iterations_executed") == random_iterations
+    assert int(stats.get("random_sample_size_requested", -1)) == max(0, int(random_sample_size))
+    expected_unpacked = min(int(stats.get("packed_by_greedy", 0)), max(0, int(unpack_last_n)))
+    assert int(stats.get("actual_unpacked_from_greedy", -1)) == expected_unpacked
+    model_pool_count = int(stats.get("model_pool_ids_count", 0))
+    expected_sample_size = min(model_pool_count, max(0, int(random_sample_size)))
+    assert int(stats.get("random_sample_size", -1)) == expected_sample_size
+    if expected_sample_size > 0:
+        assert int(stats.get("model_item_ids_count", -1)) == expected_sample_size
+    best_iter = int(stats.get("best_model_iteration", 0))
+    assert 1 <= best_iter <= random_iterations
 
     try:
         visualize_hybrid_result(
@@ -615,3 +639,105 @@ def test_hybrid_basic():
             print(f"  items {i} and {j} overlap, area={area:.6f}, y=({yi:.3f},{yj:.3f})")
 
     assert not overlaps, "Hybrid packed items have geometric intersections!"
+
+
+def test_hybrid_width_basic():
+    file_path = DATA_DIR / 'test.txt'
+    items = util_model.parse_items(str(file_path))
+    assert len(items) > 0, "no items parsed from test file"
+
+    R = 1
+    S = 35
+    height = 300.0
+    width = 400.0
+
+    total_start = time.time()
+
+    print(f"hybrid-width input file: {file_path}")
+    print("starting data")
+
+    data_start = time.time()
+    data = Data(items, R, parallel_nfp=False, shared_memory_cache=SHARED_NFP_CACHE)
+    data_time = time.time() - data_start
+
+    print("starting hybrid-width")
+
+    solver_start = time.time()
+    solver = HybridSolverWidth(data, height=height, width=width, S=S, greedy_delta_x=10.0)
+    solver_time = time.time() - solver_start
+
+    random_iterations = 1
+    random_seed = 81
+    random_sample_size = 10
+    unpack_last_n = 6
+
+    solve_start = time.time()
+    result = solver.solve(
+        unpack_last_n=unpack_last_n,
+        crop_width=120.0,
+        use_right_crop=True,
+        free_space_improvement=0,
+        solver_gap=1.0,
+        model_time_limit_sec=None,
+        stop_after_first_solution=False,
+        model_enable_output=True,
+        lock_greedy_unpacked=False,
+        max_model_unfixed_items=5,
+        random_iterations=random_iterations,
+        random_seed=random_seed,
+        random_sample_size=random_sample_size,
+    )
+    solve_time = time.time() - solve_start
+
+    total_time = time.time() - total_start
+
+    print("--- hybrid-width solve results ---")
+    print({
+        "status": result.get("status"),
+        "selected_solution": result.get("selected_solution"),
+        "hybrid_stats": result.get("hybrid_stats"),
+    })
+    print(f"Data creation time: {data_time:.4f} seconds")
+    print(f"Solver creation time: {solver_time:.4f} seconds")
+    print(f"Solve() call time: {solve_time:.4f} seconds")
+    print(f"Total (Data + Solver + Solve): {total_time:.4f} seconds")
+
+    status = result.get("status")
+    assert status in {"OK", "NOT_IMPROVED", "NOT_PROVEN"}, f"Unexpected hybrid-width status: {status}"
+
+    stats = result.get("hybrid_stats", {})
+    print(f"greedy objective: {stats.get('greedy_objective_value')}")
+    print(f"model objective: {stats.get('model_objective_value')}")
+    print(f"model status: {stats.get('model_status')}")
+    print(f"random_iterations_requested: {stats.get('random_iterations_requested')}")
+    print(f"random_iterations_executed: {stats.get('random_iterations_executed')}")
+    print(f"random_sample_size_requested: {stats.get('random_sample_size_requested')}")
+    print(f"random_sample_size: {stats.get('random_sample_size')}")
+    print(f"best_model_iteration: {stats.get('best_model_iteration')}")
+    print(f"use_right_crop: {stats.get('use_right_crop')}")
+    print(f"used_crop_width: {stats.get('used_crop_width')}")
+
+    assert stats.get("random_iterations_requested") == random_iterations
+    assert stats.get("random_iterations_executed") == random_iterations
+    assert int(stats.get("random_sample_size_requested", -1)) == max(0, int(random_sample_size))
+    expected_unpacked = min(int(stats.get("packed_by_greedy", 0)), max(0, int(unpack_last_n)))
+    assert int(stats.get("actual_unpacked_from_greedy", -1)) == expected_unpacked
+    model_pool_count = int(stats.get("model_pool_ids_count", 0))
+    expected_sample_size = min(model_pool_count, max(0, int(random_sample_size)))
+    assert int(stats.get("random_sample_size", -1)) == expected_sample_size
+    if expected_sample_size > 0:
+        assert int(stats.get("model_item_ids_count", -1)) == expected_sample_size
+    assert stats.get("use_right_crop") is True
+    assert float(stats.get("used_crop_width", 0.0)) == pytest.approx(120.0)
+
+    try:
+        visualize_hybrid_result_width(
+            data.items,
+            result,
+            width=width,
+            height=height,
+            S=S,
+            show=True,
+        )
+    except Exception as e:
+        print("visualization failed:", e)
