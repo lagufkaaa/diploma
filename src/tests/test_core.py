@@ -471,8 +471,8 @@ def test_hybrid_basic():
     
     R = 4
     S = 6
-    height = 5000.0
-    width = 5000.0
+    height = 10000.0
+    width = 10000.0
 
     total_start = time.time()
 
@@ -489,24 +489,24 @@ def test_hybrid_basic():
     solver = HybridSolver(data, height=height, width=width, S=S, greedy_delta_x=10.0)
     solver_time = time.time() - solver_start
 
-    random_iterations = 3
-    random_seed = 212
+    random_iterations = 1
+    random_seed = 122
     random_sample_size = 10
 
-    unpack_last_n = 5
+    unpack_last_n = 4
 
     solve_start = time.time()
     result = solver.solve(
         unpack_last_n = unpack_last_n,
-        crop_height= 120,
+        crop_height= 1/3 * height,
         use_top_crop=True,
-        free_space_improvement=0.01,
+        free_space_improvement=0.000001,
         solver_gap=1.0,
-        model_time_limit_sec=None,
+        model_time_limit_sec=180,
         stop_after_first_solution=False,
         model_enable_output=True,
         lock_greedy_unpacked=False,
-        max_model_unfixed_items=5,
+        max_model_unfixed_items=None,
         random_iterations=random_iterations,
         random_seed=random_seed,
         random_sample_size=random_sample_size,

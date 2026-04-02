@@ -2,7 +2,7 @@
 import random
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, MutableMapping, Optional, Set, Tuple
 
 import numpy as np
 from shapely import affinity
@@ -42,6 +42,14 @@ class HybridSolver:
         solver_name: str = "SCIP",
         greedy_delta_x: float = 1.0,
         greedy_eps_area: float = 1e-6,
+        greedy_enable_output: bool = True,
+        greedy_log_interval_sec: float = 2.0,
+        greedy_use_result_cache: bool = True,
+        greedy_result_cache_path: Optional[str] = None,
+        greedy_result_cache_ttl_days: Optional[float] = None,
+        greedy_shared_result_cache: Optional[MutableMapping[str, bytes]] = None,
+        hybrid_enable_output: bool = True,
+        hybrid_log_interval_sec: float = 2.0,
     ):
         self.data = data
         self.height = float(height)
@@ -50,6 +58,14 @@ class HybridSolver:
         self.solver_name = solver_name
         self.greedy_delta_x = float(greedy_delta_x)
         self.greedy_eps_area = float(greedy_eps_area)
+        self.greedy_enable_output = bool(greedy_enable_output)
+        self.greedy_log_interval_sec = max(0.2, float(greedy_log_interval_sec))
+        self.greedy_use_result_cache = bool(greedy_use_result_cache)
+        self.greedy_result_cache_path = greedy_result_cache_path
+        self.greedy_result_cache_ttl_days = greedy_result_cache_ttl_days
+        self.greedy_shared_result_cache = greedy_shared_result_cache
+        self.hybrid_enable_output = bool(hybrid_enable_output)
+        self.hybrid_log_interval_sec = max(0.2, float(hybrid_log_interval_sec))
 
         self._local_geom: Dict[Item, object] = {}
         for it in self.data.items:
@@ -69,6 +85,7 @@ class HybridSolver:
         free_space_improvement: float = 1.0,
         solver_gap: float = 1.0,
         model_time_limit_sec: Optional[float] = None,
+        model_num_threads: Optional[int] = None,
         stop_after_first_solution: bool = True,
         lock_greedy_unpacked: bool = True,
         max_model_unfixed_items: Optional[int] = None,
@@ -76,8 +93,42 @@ class HybridSolver:
         random_iterations: int = 1,
         random_seed: Optional[int] = 0,
         random_sample_size: Optional[int] = None,
+        greedy_enable_output: Optional[bool] = None,
+        greedy_log_interval_sec: Optional[float] = None,
+        hybrid_enable_output: Optional[bool] = None,
+        hybrid_log_interval_sec: Optional[float] = None,
     ):
         t0 = time.perf_counter()
+        hybrid_progress_on = (
+            self.hybrid_enable_output
+            if hybrid_enable_output is None
+            else bool(hybrid_enable_output)
+        )
+        hybrid_log_interval = (
+            self.hybrid_log_interval_sec
+            if hybrid_log_interval_sec is None
+            else max(0.2, float(hybrid_log_interval_sec))
+        )
+        last_hybrid_log_ts = t0 - hybrid_log_interval
+
+        def _hybrid_log(message: str, *, force: bool = False) -> None:
+            nonlocal last_hybrid_log_ts
+            if not hybrid_progress_on:
+                return
+            now = time.perf_counter()
+            if not force and (now - last_hybrid_log_ts) < hybrid_log_interval:
+                return
+            elapsed = now - t0
+            print(f"[hybrid] t={elapsed:7.2f}s {message}", flush=True)
+            last_hybrid_log_ts = now
+
+        _hybrid_log(
+            (
+                f"start solve: use_top_crop={bool(use_top_crop)}, unpack_last_n={int(max(0, unpack_last_n))}, "
+                f"random_iterations={int(max(1, random_iterations))}"
+            ),
+            force=True,
+        )
         crop_h_clamped = max(0.0, min(self.height, float(crop_height)))
         model_height = crop_h_clamped if use_top_crop else self.height
         y_offset = self.height - crop_h_clamped if use_top_crop else 0.0
@@ -89,6 +140,16 @@ class HybridSolver:
             packing_y_max = self.height
 
         greedy_dx = self.greedy_delta_x if greedy_delta_x is None else float(greedy_delta_x)
+        greedy_progress_on = (
+            self.greedy_enable_output
+            if greedy_enable_output is None
+            else bool(greedy_enable_output)
+        )
+        greedy_log_interval = (
+            self.greedy_log_interval_sec
+            if greedy_log_interval_sec is None
+            else max(0.2, float(greedy_log_interval_sec))
+        )
         greedy = GreedySolver(
             self.data,
             height=self.height,
@@ -96,10 +157,19 @@ class HybridSolver:
             S=self.S,
             delta_x=greedy_dx,
             eps_area=self.greedy_eps_area,
+            enable_progress_log=greedy_progress_on,
+            log_interval_sec=greedy_log_interval,
+            log_prefix="[hybrid-greedy]",
+            use_result_cache=self.greedy_use_result_cache,
+            result_cache_path=self.greedy_result_cache_path,
+            result_cache_ttl_days=self.greedy_result_cache_ttl_days,
+            shared_result_cache=self.greedy_shared_result_cache,
         )
         greedy_start = time.perf_counter()
         greedy_results = greedy.solve()
         greedy_time = time.perf_counter() - greedy_start
+        greedy_cache_hit = bool(getattr(greedy, "last_result_cache_hit", False))
+        _hybrid_log(f"greedy finished in {greedy_time:.2f}s", force=True)
 
         if greedy_results.get("status") != "OPTIMAL":
             return {
@@ -117,6 +187,7 @@ class HybridSolver:
                     "packing_y_max": packing_y_max,
                 },
                 "hybrid_stats": {
+                    "greedy_cache_hit": greedy_cache_hit,
                     "greedy_time_sec": greedy_time,
                     "model_time_sec": 0.0,
                     "total_time_sec": time.perf_counter() - t0,
@@ -128,6 +199,10 @@ class HybridSolver:
         packed_ids = {rec.item.id for rec in packed_records}
         all_item_ids = {it.id for it in self.data.items}
         greedy_unpacked_ids = all_item_ids - packed_ids
+        _hybrid_log(
+            f"post-greedy: packed_records={len(packed_records)}, greedy_unpacked_ids={len(greedy_unpacked_ids)}",
+            force=True,
+        )
 
         candidate_ids = self._select_candidate_ids(
             packed_records=packed_records,
@@ -135,6 +210,7 @@ class HybridSolver:
             max_model_unfixed_items=None,
         )
         unpack_ids: Set[object] = set(candidate_ids)
+        _hybrid_log(f"selected candidates for model: {len(unpack_ids)}", force=True)
 
         model_pool_ids: Set[object] = set(unpack_ids)
         if not lock_greedy_unpacked:
@@ -178,6 +254,13 @@ class HybridSolver:
             sample_size = max(0, int(random_sample_size))
         random_iterations = max(1, int(random_iterations))
         rng = random.Random(random_seed) if random_seed is not None else random.Random()
+        _hybrid_log(
+            (
+                f"sampling config: pool_ids will be built, sample_size={sample_size}, "
+                f"iterations={random_iterations}, seed={random_seed}"
+            ),
+            force=True,
+        )
 
         fixed_records_base = [rec for rec in packed_records if rec.item.id not in unpack_ids]
         fixed_item_assignments = {rec.item: (float(rec.x), int(rec.strip)) for rec in fixed_records_base}
@@ -219,8 +302,16 @@ class HybridSolver:
 
             fixed_records = fixed_records_base
             forced_unpacked_ids = (greedy_unpacked_ids | unpack_ids) - model_item_ids
+            _hybrid_log(
+                (
+                    f"iter {iter_idx + 1}/{random_iterations}: model_items={len(model_item_ids)}, "
+                    f"fixed_records={len(fixed_records)}, forced_unpacked={len(forced_unpacked_ids)}"
+                ),
+                force=True,
+            )
 
             iter_start = time.perf_counter()
+            _hybrid_log(f"iter {iter_idx + 1}/{random_iterations}: build model", force=True)
             problem = HybridProblem(
                 self.data,
                 S=self.S,
@@ -237,16 +328,34 @@ class HybridSolver:
                 min_objective_value=min_total_objective,
                 relative_gap=solver_gap,
                 time_limit_sec=model_time_limit_sec,
+                num_threads=model_num_threads,
                 stop_after_first_solution=stop_after_first_solution,
             )
+            _hybrid_log(
+                (
+                    f"iter {iter_idx + 1}/{random_iterations}: start model.solve() "
+                    f"(enable_output={bool(model_enable_output)})"
+                ),
+                force=True,
+            )
             raw_model_results = problem.solve()
+            _hybrid_log(f"iter {iter_idx + 1}/{random_iterations}: model.solve() finished", force=True)
             model_results = self._assemble_solution_with_fixed_records(
                 fixed_records=fixed_records,
                 model_results=raw_model_results,
                 model_item_ids=model_item_ids,
             )
+            if model_results.get("objective_value") is not None:
+                _hybrid_log(
+                    f"iter {iter_idx + 1}/{random_iterations}: check overlaps in merged solution",
+                    force=True,
+                )
             if model_results.get("objective_value") is not None and self._has_solution_overlaps(model_results):
                 model_results = {"status": "INFEASIBLE", "objective_value": None}
+                _hybrid_log(
+                    f"iter {iter_idx + 1}/{random_iterations}: overlap detected, mark as INFEASIBLE",
+                    force=True,
+                )
             iter_time = time.perf_counter() - iter_start
             model_time += iter_time
 
@@ -254,6 +363,13 @@ class HybridSolver:
             iter_obj = model_results.get("objective_value")
             iter_ok = iter_obj is not None and iter_status in {"OPTIMAL", "FEASIBLE"}
             iter_rank = _status_rank(iter_status)
+            _hybrid_log(
+                (
+                    f"iter {iter_idx + 1}/{random_iterations}: "
+                    f"status={iter_status}, objective={iter_obj}, iter_time={iter_time:.2f}s"
+                ),
+                force=True,
+            )
 
             choose_iteration = iter_idx == 0
             if not choose_iteration:
@@ -281,11 +397,25 @@ class HybridSolver:
                 best_model_iteration = int(iter_idx + 1)
                 best_model_item_ids = set(model_item_ids)
                 best_forced_unpacked_ids = set(forced_unpacked_ids)
+                _hybrid_log(
+                    (
+                        f"iter {iter_idx + 1}/{random_iterations}: new best "
+                        f"(status={best_model_status}, objective={best_model_obj})"
+                    ),
+                    force=True,
+                )
 
         model_results = best_model_results
         model_item_ids = best_model_item_ids
         fixed_records = fixed_records_base
         forced_unpacked_ids = best_forced_unpacked_ids
+        _hybrid_log(
+            (
+                f"model phase finished: best_iteration={best_model_iteration}, "
+                f"best_status={best_model_status}, best_objective={best_model_obj}, model_time={model_time:.2f}s"
+            ),
+            force=True,
+        )
         selected_packed_in_model = sum(1 for rec in packed_records if rec.item.id in model_item_ids)
         selected_unpacked_in_model = len(model_item_ids - packed_ids)
 
@@ -339,6 +469,7 @@ class HybridSolver:
                 "model_result": model_results,
                 "visualization": visualization_payload,
                 "hybrid_stats": {
+                    "greedy_cache_hit": greedy_cache_hit,
                     "packed_by_greedy": len(packed_records),
                     "unpack_last_n": int(max(0, unpack_last_n)),
                     "use_top_crop": bool(use_top_crop),
@@ -389,6 +520,7 @@ class HybridSolver:
             "model_result": model_results,
             "visualization": visualization_payload,
             "hybrid_stats": {
+                "greedy_cache_hit": greedy_cache_hit,
                 "packed_by_greedy": len(packed_records),
                 "unpack_last_n": int(max(0, unpack_last_n)),
                 "use_top_crop": bool(use_top_crop),

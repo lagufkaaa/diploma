@@ -27,6 +27,16 @@ class Model:
 
         M = 1e17
         solver = pywraplp.Solver.CreateSolver('SCIP')
+        solver_threads = 1
+        solver.SetNumThreads(solver_threads)
+        solver.SetSolverSpecificParametersAsString(
+            "\n".join(
+                [
+                    f"parallel/maxnthreads = {solver_threads}",
+                    "display/verblevel = 0",
+                ]
+            )
+        )
         Area = [Polygon(item).area for item in items]
         
         p = [[solver.BoolVar(f'p_{n}_{r}') for r in range(R)] for n in range(N)]

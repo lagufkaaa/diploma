@@ -31,6 +31,7 @@ class Problem:
         relative_gap: Optional[float] = None,
         time_limit_sec: Optional[float] = None,
         stop_after_first_solution: bool = False,
+        num_threads: Optional[int] = None,
     ):
         self.data = data
         self.solver_name = solver_name
@@ -85,6 +86,7 @@ class Problem:
         self.relative_gap = relative_gap
         self.time_limit_sec = time_limit_sec
         self.stop_after_first_solution = bool(stop_after_first_solution)
+        self.num_threads = num_threads
 
         self.encoding = Encoding(data, self.S, self.height)
 
@@ -346,6 +348,9 @@ class Problem:
 
     # ---------- solver config ----------
     def _configure_solver(self) -> None:
+        threads = self._resolve_num_threads(self.num_threads)
+        self.solver.SetNumThreads(threads)
+
         if self.time_limit_sec is not None:
             self.solver.SetTimeLimit(int(max(0.0, float(self.time_limit_sec)) * 1000.0))
 
@@ -353,6 +358,7 @@ class Problem:
             return
 
         params = []
+        params.append(f"parallel/maxnthreads = {threads}")
         if self.relative_gap is not None:
             params.append(f"limits/gap = {max(0.0, float(self.relative_gap))}")
         if self.stop_after_first_solution:
@@ -362,6 +368,12 @@ class Problem:
 
         if params:
             self.solver.SetSolverSpecificParametersAsString("\n".join(params))
+
+    @staticmethod
+    def _resolve_num_threads(num_threads: Optional[int]) -> int:
+        if num_threads is not None:
+            return max(1, int(num_threads))
+        return 1
 
     # ---------- utils ----------
     def _status_name(self, status: int) -> str:

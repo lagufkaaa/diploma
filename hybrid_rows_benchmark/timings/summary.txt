@@ -1,0 +1,9 @@
+summary (model only, without greedy/data build)
+S=4 | model_time_sec=0.140191 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=93900.0
+S=6 | model_time_sec=0.218681 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=93900.0
+
+time_stats_model_only
+count: 2
+min_model_time_sec: 0.140191 (S=4)
+max_model_time_sec: 0.218681 (S=6)
+avg_model_time_sec: 0.179436

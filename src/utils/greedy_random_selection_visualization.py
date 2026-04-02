@@ -16,7 +16,7 @@ from matplotlib.colors import LinearSegmentedColormap
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATA_FILE = PROJECT_ROOT / "data_car_mats" / "car_mats_4.txt"
+DEFAULT_DATA_FILE = PROJECT_ROOT / "data_car_mats" / "car_mats_2.txt"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "generated_images"
 
 COLOR_ALL = "#71c7ec"

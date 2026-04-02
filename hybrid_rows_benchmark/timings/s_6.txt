@@ -1,0 +1,338 @@
+detailed report for S=6
+run_started: 2026-04-02T22:04:14
+run_finished: 2026-04-02T22:04:14
+
+input_data
+data_file: C:\Users\user\Desktop\diploma\data_car_mats\test.txt
+R: 1
+height: 300.0
+width: 400.0
+
+s_value
+S: 6
+
+model_params
+unpack_last_n: 3
+crop_height_ratio: 0.6666666666666666
+free_space_improvement: 0.01
+solver_gap: 1.0
+model_time_limit_sec: 1.0
+model_num_threads: None
+stop_after_first_solution: False
+model_enable_output: False
+lock_greedy_unpacked: False
+max_model_unfixed_items: 3
+random_iterations: 1
+random_seed: 122
+random_sample_size: 4
+greedy_enable_output: False
+hybrid_enable_output: False
+greedy_use_result_cache: True
+greedy_result_cache_path: C:\Users\user\Desktop\diploma\cache\greedy\bench_demo.sqlite3
+greedy_result_cache_ttl_days: None
+
+run_result
+time_sec: 0.230283
+status: NOT_PROVEN
+selected_solution: greedy
+final_objective: 93900.0
+model_status: INFEASIBLE
+greedy_cache_hit: True
+image_file: C:\Users\user\Desktop\diploma\hybrid_rows_benchmark\images\hybrid_result_S_6.png
+
+hybrid_stats_json
+{
+  "greedy_cache_hit": true,
+  "packed_by_greedy": 5,
+  "unpack_last_n": 3,
+  "use_top_crop": true,
+  "used_crop_height": 200.0,
+  "candidate_items_for_model": 3,
+  "unpack_ids_count": 3,
+  "actual_unpacked_from_greedy": 3,
+  "model_pool_ids_count": 4,
+  "model_item_ids_count": 4,
+  "selected_packed_items_for_model": 3,
+  "selected_unpacked_items_for_model": 1,
+  "restricted_items_in_window": 4,
+  "fixed_items_in_model": 2,
+  "forced_unpacked_ids": 0,
+  "random_iterations_requested": 1,
+  "random_iterations_executed": 1,
+  "random_sample_size_requested": 4,
+  "random_sample_size": 4,
+  "best_model_iteration": 1,
+  "greedy_objective_value": 93900.0,
+  "model_objective_value": null,
+  "final_objective_value": 93900.0,
+  "greedy_free_space_percent": 21.75,
+  "model_free_space_percent": null,
+  "final_free_space_percent": 21.75,
+  "free_space_improvement_percent": 0.0,
+  "target_free_space_percent": 21.74,
+  "greedy_time_sec": 0.0014273999840952456,
+  "model_time_sec": 0.21868089999770746,
+  "total_time_sec": 0.22326999995857477,
+  "greedy_delta_x_used": 1.0,
+  "model_status": "INFEASIBLE",
+  "full_search_mode": false,
+  "proven_global_optimal": false,
+  "can_claim_no_improvement": false
+}
+
+full_result_json
+{
+  "status": "NOT_PROVEN",
+  "selected_solution": "greedy",
+  "final": {
+    "p": [
+      1.0,
+      0.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "x": [
+      90.0,
+      0.0,
+      200.0,
+      0.0,
+      200.0,
+      0.0
+    ],
+    "y": [
+      200.0,
+      0.0,
+      150.0,
+      200.0,
+      0.0,
+      0.0
+    ],
+    "s": [
+      4.0,
+      0.0,
+      3.0,
+      4.0,
+      0.0,
+      0.0
+    ],
+    "deltas": [
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    ],
+    "placement_order": [
+      5,
+      4,
+      2,
+      3,
+      0
+    ],
+    "objective_value": 93900.0,
+    "status": "OPTIMAL"
+  },
+  "model_result": {
+    "status": "INFEASIBLE",
+    "objective_value": null
+  },
+  "visualization": {
+    "greedy_solution": {
+      "p": [
+        1.0,
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "x": [
+        90.0,
+        0.0,
+        200.0,
+        0.0,
+        200.0,
+        0.0
+      ],
+      "y": [
+        200.0,
+        0.0,
+        150.0,
+        200.0,
+        0.0,
+        0.0
+      ],
+      "s": [
+        4.0,
+        0.0,
+        3.0,
+        4.0,
+        0.0,
+        0.0
+      ],
+      "deltas": [
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "placement_order": [
+        5,
+        4,
+        2,
+        3,
+        0
+      ],
+      "objective_value": 93900.0,
+      "status": "OPTIMAL"
+    },
+    "packed_indices": [
+      5,
+      4,
+      2,
+      3,
+      0
+    ],
+    "candidate_indices": [
+      2,
+      3,
+      0
+    ],
+    "fixed_indices": [
+      5,
+      4
+    ],
+    "use_top_crop": true,
+    "used_crop_height": 200.0,
+    "crop_y_min": 100.0,
+    "packing_y_min": 100.0,
+    "packing_y_max": 300.0
+  },
+  "hybrid_stats": {
+    "greedy_cache_hit": true,
+    "packed_by_greedy": 5,
+    "unpack_last_n": 3,
+    "use_top_crop": true,
+    "used_crop_height": 200.0,
+    "candidate_items_for_model": 3,
+    "unpack_ids_count": 3,
+    "actual_unpacked_from_greedy": 3,
+    "model_pool_ids_count": 4,
+    "model_item_ids_count": 4,
+    "selected_packed_items_for_model": 3,
+    "selected_unpacked_items_for_model": 1,
+    "restricted_items_in_window": 4,
+    "fixed_items_in_model": 2,
+    "forced_unpacked_ids": 0,
+    "random_iterations_requested": 1,
+    "random_iterations_executed": 1,
+    "random_sample_size_requested": 4,
+    "random_sample_size": 4,
+    "best_model_iteration": 1,
+    "greedy_objective_value": 93900.0,
+    "model_objective_value": null,
+    "final_objective_value": 93900.0,
+    "greedy_free_space_percent": 21.75,
+    "model_free_space_percent": null,
+    "final_free_space_percent": 21.75,
+    "free_space_improvement_percent": 0.0,
+    "target_free_space_percent": 21.74,
+    "greedy_time_sec": 0.0014273999840952456,
+    "model_time_sec": 0.21868089999770746,
+    "total_time_sec": 0.22326999995857477,
+    "greedy_delta_x_used": 1.0,
+    "model_status": "INFEASIBLE",
+    "full_search_mode": false,
+    "proven_global_optimal": false,
+    "can_claim_no_improvement": false
+  }
+}
