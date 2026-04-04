@@ -1,5 +1,5 @@
 ﻿from ortools.linear_solver import pywraplp
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from core.data import Data, Item
 from core.encoding import Encoding
@@ -13,10 +13,26 @@ class Problem:
         height: float,
         width: float,
         solver_name: str = "SCIP",
+        *,
+        enable_output: bool = False,
+        relative_gap: Optional[float] = None,
+        time_limit_sec: Optional[float] = None,
+        stop_after_first_solution: bool = False,
+        num_threads: Optional[int] = None,
     ):
         self.data = data
+        self.solver_name = str(solver_name)
         self.solver = pywraplp.Solver.CreateSolver(solver_name)
-        self.solver.EnableOutput()
+        if self.solver is None:
+            raise RuntimeError(f"Failed to create solver '{solver_name}'")
+
+        self.enable_output = bool(enable_output)
+        self.relative_gap = relative_gap
+        self.time_limit_sec = time_limit_sec
+        self.stop_after_first_solution = bool(stop_after_first_solution)
+        self.num_threads = num_threads
+        if self.enable_output:
+            self.solver.EnableOutput()
 
         self.S = S
         self.R = R
@@ -39,6 +55,7 @@ class Problem:
         self.deltas: Dict[Tuple[Item, int], pywraplp.Variable] = {}
 
         self.gammas: Dict[Tuple[Item, Item, int, int], pywraplp.Variable] = {}
+        self._configure_solver()
 
     # ---------- preprocessing ----------
     def build_abc(self):
@@ -75,7 +92,7 @@ class Problem:
 
         status = self.solver.Solve()
 
-        if status == pywraplp.Solver.OPTIMAL:
+        if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
             results = {
                 "p": [self.p[it].solution_value() for it in self.data.items],
                 "x": [self.x[it].solution_value() for it in self.data.items],
@@ -85,10 +102,10 @@ class Problem:
                     for it in self.data.items
                 ],
                 "objective_value": self.solver.Objective().Value(),
-                "status": "OPTIMAL",
+                "status": self._status_name(status),
             }
         else:
-            results = {"status": "NOT_OPTIMAL", "objective_value": None}
+            results = {"status": self._status_name(status), "objective_value": None}
 
         return results
 
@@ -115,7 +132,7 @@ class Problem:
             # sum_s delta(it,s) = p(it)
             self.solver.Add(sum(self.deltas[(it, s)] for s in range(self.S)) == self.p[it])
 
-            # s(it) = ОЈ s * delta(it,s)
+            # s(it) = Σ s * delta(it,s)
             self.solver.Add(self.str_var[it] == sum(s * self.deltas[(it, s)] for s in range(self.S)))
 
     def _add_boundary_constraints(self) -> None:
@@ -130,8 +147,8 @@ class Problem:
     
     def _add_single_use_constraints(self) -> None:
         """
-        Р•СЃР»Рё item.id РїРѕРІС‚РѕСЂСЏРµС‚СЃСЏ (РѕРґРЅР° С„РѕСЂРјР° РІ СЂР°Р·РЅС‹С… rotation / РєРѕРїРёСЏС…),
-        СЂР°Р·СЂРµС€Р°РµРј РІС‹Р±СЂР°С‚СЊ РјР°РєСЃРёРјСѓРј РѕРґРЅСѓ РёР· РіСЂСѓРїРїС‹.
+        Если item.id повторяется (одна форма в разных rotation / копиях),
+        разрешаем выбрать максимум одну из группы.
         """
         from collections import defaultdict
 
@@ -140,12 +157,12 @@ class Problem:
             items_by_id[it.id].append(it)
 
         for group in items_by_id.values():
-            # СЃСѓРјРјР°СЂРЅРѕ РїРѕ РіСЂСѓРїРїРµ Рё РІСЃРµРј РїРѕР»РѕСЃР°Рј РЅРµ Р±РѕР»РµРµ 1
+            # суммарно по группе и всем полосам не более 1
             all_deltas = []
             for it in group:
                 for s in range(self.S):
                     all_deltas.append(self.deltas[(it, s)])
-                # Сѓ РєР°Р¶РґРѕР№ РєРѕРїРёРё sum delta = p
+                # у каждой копии sum delta = p
                 # self.solver.Add(sum(self.deltas[(it, s)] for s in range(self.S)) == self.p[it])
 
             self.solver.Add(sum(all_deltas) <= 1)
@@ -208,3 +225,45 @@ class Problem:
         for it in self.data.items:
             obj.SetCoefficient(self.p[it], float(it.area))
         obj.SetMaximization()
+
+    # ---------- solver config ----------
+    def _configure_solver(self) -> None:
+        threads = self._resolve_num_threads(self.num_threads)
+        self.solver.SetNumThreads(threads)
+
+        if self.time_limit_sec is not None:
+            self.solver.SetTimeLimit(int(max(0.0, float(self.time_limit_sec)) * 1000.0))
+
+        if self.solver_name.upper() != "SCIP":
+            return
+
+        params = [f"parallel/maxnthreads = {threads}"]
+        if self.relative_gap is not None:
+            params.append(f"limits/gap = {max(0.0, float(self.relative_gap))}")
+        if self.stop_after_first_solution:
+            params.append("limits/solutions = 1")
+        if not self.enable_output:
+            params.append("display/verblevel = 0")
+
+        self.solver.SetSolverSpecificParametersAsString("\n".join(params))
+
+    @staticmethod
+    def _resolve_num_threads(num_threads: Optional[int]) -> int:
+        if num_threads is not None:
+            return max(1, int(num_threads))
+        return 1
+
+    @staticmethod
+    def _status_name(status: int) -> str:
+        names = {
+            pywraplp.Solver.OPTIMAL: "OPTIMAL",
+            pywraplp.Solver.FEASIBLE: "FEASIBLE",
+            pywraplp.Solver.INFEASIBLE: "INFEASIBLE",
+            pywraplp.Solver.UNBOUNDED: "UNBOUNDED",
+            pywraplp.Solver.ABNORMAL: "ABNORMAL",
+            pywraplp.Solver.NOT_SOLVED: "NOT_SOLVED",
+        }
+        model_invalid = getattr(pywraplp.Solver, "MODEL_INVALID", None)
+        if model_invalid is not None:
+            names[model_invalid] = "MODEL_INVALID"
+        return names.get(status, f"STATUS_{status}")
