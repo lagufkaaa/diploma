@@ -1,5 +1,7 @@
 ﻿from collections import defaultdict
-from typing import Dict, Optional, Set, Tuple
+import math
+import time
+from typing import Callable, Dict, Optional, Set, Tuple
 
 from ortools.linear_solver import pywraplp
 
@@ -19,6 +21,7 @@ class Problem:
         *,
         enable_output: bool = True,
         fixed_item_assignments: Optional[Dict[Item, Tuple[float, int]]] = None,
+        no_lower_y_bound_item_ids: Optional[Set[object]] = None,
         forced_unpacked_ids: Optional[Set[object]] = None,
         restricted_item_ids: Optional[Set[object]] = None,
         packing_x_min: Optional[float] = None,
@@ -32,7 +35,14 @@ class Problem:
         time_limit_sec: Optional[float] = None,
         stop_after_first_solution: bool = False,
         num_threads: Optional[int] = None,
+        progress_callback: Optional[Callable[[str], None]] = None,
+        progress_label: str = "[model]",
     ):
+        self._progress_callback = progress_callback
+        self._progress_label = str(progress_label)
+        init_t0 = time.perf_counter()
+        self._progress("init: start")
+
         self.data = data
         self.solver_name = solver_name
         self.solver = pywraplp.Solver.CreateSolver(solver_name)
@@ -50,6 +60,7 @@ class Problem:
         self.h = self.height / self.S
 
         self.fixed_item_assignments = fixed_item_assignments or {}
+        self.no_lower_y_bound_item_ids = set(no_lower_y_bound_item_ids or set())
         self.forced_unpacked_ids = set(forced_unpacked_ids or set())
         self.restricted_item_ids = set(restricted_item_ids or set())
 
@@ -88,14 +99,36 @@ class Problem:
         self.stop_after_first_solution = bool(stop_after_first_solution)
         self.num_threads = num_threads
 
+        enc_t0 = time.perf_counter()
+        self._progress("init: build encoding")
         self.encoding = Encoding(data, self.S, self.height)
+        self._progress(
+            f"init: encoding ready in {time.perf_counter() - enc_t0:.2f}s "
+            f"(enc_keys={len(self.encoding.enc)})"
+        )
 
         self.a: Dict[Tuple[Item, Item, int], list[float]] = {}
         self.b: Dict[Tuple[Item, Item, int], list[float]] = {}
         self.C: Dict[Tuple[Item, Item, int], int] = {}
+        abc_t0 = time.perf_counter()
+        self._progress("init: build a/b/C coefficients")
         self.build_abc()
+        self._progress(
+            f"init: a/b/C ready in {time.perf_counter() - abc_t0:.2f}s "
+            f"(keys={len(self.C)})"
+        )
 
-        self.big_M = 1e5
+        self.big_M, big_m_meta = self._compute_auto_big_m()
+        min_a_text = "n/a" if big_m_meta["min_a"] is None else f"{float(big_m_meta['min_a']):.3f}"
+        max_b_text = "n/a" if big_m_meta["max_b"] is None else f"{float(big_m_meta['max_b']):.3f}"
+        self._progress(
+            (
+                f"init: big_M auto={self.big_M:.3f} "
+                f"(boundary_req={float(big_m_meta['boundary_req']):.3f}, "
+                f"non_overlap_req={float(big_m_meta['non_overlap_req']):.3f}, "
+                f"min_a={min_a_text}, max_b={max_b_text})"
+            )
+        )
 
         self.x: Dict[Item, pywraplp.Variable] = {}
         self.p: Dict[Item, pywraplp.Variable] = {}
@@ -104,6 +137,7 @@ class Problem:
 
         self.gammas: Dict[Tuple[Item, Item, int, int], pywraplp.Variable] = {}
         self._configure_solver()
+        self._progress(f"init: done in {time.perf_counter() - init_t0:.2f}s")
 
     # ---------- preprocessing ----------
     def build_abc(self):
@@ -129,17 +163,60 @@ class Problem:
 
     # ---------- solve ----------
     def solve(self):
+        solve_t0 = time.perf_counter()
+
+        t0 = time.perf_counter()
+        self._progress("solve: build variables")
         self._build_variables()
+        self._progress(
+            (
+                f"solve: build variables done in {time.perf_counter() - t0:.2f}s "
+                f"(p={len(self.p)}, x={len(self.x)}, s={len(self.str_var)}, "
+                f"deltas={len(self.deltas)}, gammas={len(self.gammas)})"
+            )
+        )
+
+        t0 = time.perf_counter()
+        self._progress("solve: set objective")
         self._set_objective()
+        self._progress(f"solve: set objective done in {time.perf_counter() - t0:.2f}s")
 
+        t0 = time.perf_counter()
+        self._progress("solve: add strip linking constraints")
         self._add_strip_linking_constraints()
-        self._add_boundary_constraints()
-        self._add_single_use_constraints()
-        self._add_fixed_item_constraints()
-        self._add_minimum_quality_constraint()
-        self._add_non_overlap_constraints()
+        self._progress(f"solve: strip linking done in {time.perf_counter() - t0:.2f}s")
 
+        t0 = time.perf_counter()
+        self._progress("solve: add boundary constraints")
+        self._add_boundary_constraints()
+        self._progress(f"solve: boundary constraints done in {time.perf_counter() - t0:.2f}s")
+
+        t0 = time.perf_counter()
+        self._progress("solve: add single-use constraints")
+        self._add_single_use_constraints()
+        self._progress(f"solve: single-use constraints done in {time.perf_counter() - t0:.2f}s")
+
+        t0 = time.perf_counter()
+        self._progress("solve: add fixed-item constraints")
+        self._add_fixed_item_constraints()
+        self._progress(f"solve: fixed-item constraints done in {time.perf_counter() - t0:.2f}s")
+
+        t0 = time.perf_counter()
+        self._progress("solve: add minimum-quality constraint")
+        self._add_minimum_quality_constraint()
+        self._progress(
+            f"solve: minimum-quality constraint done in {time.perf_counter() - t0:.2f}s"
+        )
+
+        t0 = time.perf_counter()
+        self._progress("solve: add non-overlap constraints")
+        self._add_non_overlap_constraints()
+        self._progress(f"solve: non-overlap constraints done in {time.perf_counter() - t0:.2f}s")
+
+        solve_call_t0 = time.perf_counter()
+        self._progress("solve: call solver")
         status = self.solver.Solve()
+        solve_call_dt = time.perf_counter() - solve_call_t0
         status_text = self._status_name(status)
 
         if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
@@ -156,6 +233,13 @@ class Problem:
             }
         else:
             results = {"status": status_text, "objective_value": None}
+
+        self._progress(
+            (
+                f"solve: finished status={status_text}, objective={results.get('objective_value')}, "
+                f"solve_call={solve_call_dt:.2f}s, total={time.perf_counter() - solve_t0:.2f}s"
+            )
+        )
 
         return results
 
@@ -194,7 +278,7 @@ class Problem:
                     x_lower = float(self.packing_x_min)
                 if self.packing_x_max is not None:
                     x_upper = float(self.packing_x_max)
-                if self.packing_y_min is not None:
+                if self.packing_y_min is not None and it.id not in self.no_lower_y_bound_item_ids:
                     y_lower = float(self.packing_y_min)
                 if self.packing_y_max is not None:
                     y_upper = float(self.packing_y_max)
@@ -375,6 +459,80 @@ class Problem:
             return max(1, int(num_threads))
         return 1
 
+    def _compute_auto_big_m(self) -> Tuple[float, Dict[str, Optional[float]]]:
+        items = list(self.data.items)
+        if not items:
+            return 1.0, {
+                "boundary_req": 1.0,
+                "non_overlap_req": 0.0,
+                "min_a": None,
+                "max_b": None,
+            }
+
+        width = float(self.width)
+        height = float(self.height)
+
+        min_xmin = min(float(it.xmin) for it in items)
+        max_xmax = max(float(it.xmax) for it in items)
+        min_ymin = min(float(it.ymin) for it in items)
+        max_ymax = max(float(it.ymax) for it in items)
+
+        x_lower_candidates = [0.0]
+        x_upper_candidates = [width]
+        y_lower_candidates = [0.0]
+        y_upper_candidates = [height]
+
+        if self.packing_x_min is not None:
+            x_lower_candidates.append(float(self.packing_x_min))
+        if self.packing_x_max is not None:
+            x_upper_candidates.append(float(self.packing_x_max))
+        if self.packing_y_min is not None:
+            y_lower_candidates.append(float(self.packing_y_min))
+        if self.packing_y_max is not None:
+            y_upper_candidates.append(float(self.packing_y_max))
+
+        boundary_req = 0.0
+        for x_upper in x_upper_candidates:
+            boundary_req = max(boundary_req, width + max_xmax - float(x_upper))
+        for x_lower in x_lower_candidates:
+            boundary_req = max(boundary_req, float(x_lower) - min_xmin)
+        for y_upper in y_upper_candidates:
+            boundary_req = max(boundary_req, max_ymax - float(y_upper))
+        for y_lower in y_lower_candidates:
+            boundary_req = max(boundary_req, float(y_lower) - min_ymin)
+
+        min_a: Optional[float] = None
+        max_b: Optional[float] = None
+        for vals in self.a.values():
+            if not vals:
+                continue
+            local_min = min(float(v) for v in vals)
+            min_a = local_min if min_a is None else min(min_a, local_min)
+        for vals in self.b.values():
+            if not vals:
+                continue
+            local_max = max(float(v) for v in vals)
+            max_b = local_max if max_b is None else max(max_b, local_max)
+
+        non_overlap_req = 0.0
+        if min_a is not None:
+            non_overlap_req = max(non_overlap_req, width - float(min_a))
+        if max_b is not None:
+            non_overlap_req = max(non_overlap_req, width + float(max_b))
+
+        required = max(1.0, boundary_req, non_overlap_req)
+        if not math.isfinite(required):
+            required = 1e6
+
+        # Small safety margin for numerical tolerance.
+        big_m = required * 1.05 + 1.0
+        return float(big_m), {
+            "boundary_req": float(boundary_req),
+            "non_overlap_req": float(non_overlap_req),
+            "min_a": min_a,
+            "max_b": max_b,
+        }
+
     # ---------- utils ----------
     def _status_name(self, status: int) -> str:
         names = {
@@ -389,3 +547,8 @@ class Problem:
         if model_invalid is not None:
             names[model_invalid] = "MODEL_INVALID"
         return names.get(status, f"STATUS_{status}")
+
+    def _progress(self, message: str) -> None:
+        callback = self._progress_callback
+        if callback is not None:
+            callback(f"{self._progress_label} {message}")

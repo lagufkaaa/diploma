@@ -236,6 +236,24 @@ def visualize_hybrid_result_width(
 
         # Лейбл окна repack намеренно убран по требованию пользователя.
 
+    def _draw_strip_rows(ax):
+        # Горизонтальные границы strip-ов (S) для финальной панели.
+        total_strips = max(1, int(S))
+        if total_strips <= 1:
+            return
+        h_strip = float(height) / float(total_strips)
+        for strip_idx in range(1, total_strips):
+            y_line = float(strip_idx) * h_strip
+            ax.plot(
+                [0.0, float(width)],
+                [y_line, y_line],
+                color="#ef4444",
+                linewidth=1.3,
+                linestyle=":",
+                alpha=0.9,
+                zorder=4,
+            )
+
     # Панель 1: исходная greedy-укладка (кандидаты подсвечиваются).
     ax0 = axes[0]
     _draw_solution(ax0, greedy_solution, highlight_indices=candidate_indices)
@@ -252,13 +270,13 @@ def visualize_hybrid_result_width(
             bbox=dict(facecolor="white", alpha=0.65, edgecolor="none"),
         )
 
-    # Панель 2: состояние после cut/unpack (оставляем только fixed-детали).
+    # Панель 2: greedy layout после распаковки последних N (без кандидатов unpack_last_n).
     ax1 = axes[1]
     if fixed_indices:
         _draw_solution(ax1, greedy_solution, allowed_indices=fixed_indices, alpha=0.60)
     _draw_cut_overlay(ax1)
     # Меняй подпись панели здесь.
-    _setup_axis(ax1, "Partial Packing After Unpack and Crop")
+    _setup_axis(ax1, "Greedy Layout After Unpack Last N")
 
     # Панель 3: финал, либо кандидат модели, либо сообщение об infeasible.
     ax2 = axes[2]
@@ -323,6 +341,9 @@ def visualize_hybrid_result_width(
             bbox=dict(facecolor="white", alpha=0.7),
         )
         _setup_axis(ax2, "Model Search Outcome")
+
+    # По требованию: линии strip-ов только на последней панели.
+    _draw_strip_rows(ax2)
 
     if save_path:
         # При необходимости сохраняем итоговую картинку на диск.

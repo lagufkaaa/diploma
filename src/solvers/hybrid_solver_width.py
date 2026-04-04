@@ -40,7 +40,6 @@ class HybridSolverWidth:
         S: int = 1,
         *,
         solver_name: str = "SCIP",
-        greedy_delta_x: float = 1.0,
         greedy_eps_area: float = 1e-6,
         greedy_enable_output: bool = True,
         greedy_log_interval_sec: float = 2.0,
@@ -56,7 +55,6 @@ class HybridSolverWidth:
         self.width = float(width)
         self.S = int(S)
         self.solver_name = solver_name
-        self.greedy_delta_x = float(greedy_delta_x)
         self.greedy_eps_area = float(greedy_eps_area)
         self.greedy_enable_output = bool(greedy_enable_output)
         self.greedy_log_interval_sec = max(0.2, float(greedy_log_interval_sec))
@@ -80,7 +78,6 @@ class HybridSolverWidth:
         *,
         unpack_last_n: int,
         crop_width: float,
-        greedy_delta_x: Optional[float] = None,
         use_right_crop: bool = True,
         free_space_improvement: float = 1.0,
         solver_gap: float = 1.0,
@@ -137,7 +134,6 @@ class HybridSolverWidth:
             packing_x_min = 0.0
             packing_x_max = self.width
 
-        greedy_dx = self.greedy_delta_x if greedy_delta_x is None else float(greedy_delta_x)
         greedy_progress_on = (
             self.greedy_enable_output
             if greedy_enable_output is None
@@ -153,7 +149,6 @@ class HybridSolverWidth:
             height=self.height,
             width=self.width,
             S=self.S,
-            delta_x=greedy_dx,
             eps_area=self.greedy_eps_area,
             enable_progress_log=greedy_progress_on,
             log_interval_sec=greedy_log_interval,
@@ -202,34 +197,42 @@ class HybridSolverWidth:
             force=True,
         )
 
+        packed_in_window_ids: Set[object] = set()
+        if use_right_crop:
+            packed_in_window_ids = self._collect_packed_ids_in_x_window(
+                packed_records=packed_records,
+                x_min=packing_x_min,
+                x_max=packing_x_max,
+            )
+            _hybrid_log(
+                f"packed items intersecting model window: {len(packed_in_window_ids)}",
+                force=True,
+            )
+
+        candidate_source_records = packed_records
         candidate_ids = self._select_candidate_ids(
-            packed_records=packed_records,
+            packed_records=candidate_source_records,
             unpack_last_n=unpack_last_n,
             max_model_unfixed_items=None,
         )
         unpack_ids: Set[object] = set(candidate_ids)
-        _hybrid_log(f"selected candidates for model: {len(unpack_ids)}", force=True)
+        _hybrid_log(f"selected unpack_last_n candidates: {len(unpack_ids)}", force=True)
 
-        model_pool_ids: Set[object] = set(unpack_ids)
-        if not lock_greedy_unpacked:
-            extra_unpacked_ids: List[object] = []
-            seen_extra_ids: Set[object] = set()
-            for it in self.data.items:
-                item_id = it.id
-                if item_id in unpack_ids:
-                    continue
-                if item_id not in greedy_unpacked_ids:
-                    continue
-                if item_id in seen_extra_ids:
-                    continue
-                seen_extra_ids.add(item_id)
-                extra_unpacked_ids.append(item_id)
-
-            if max_model_unfixed_items is not None:
-                extra_limit = max(0, int(max_model_unfixed_items))
-                extra_unpacked_ids = extra_unpacked_ids[:extra_limit]
-
-            model_pool_ids |= set(extra_unpacked_ids)
+        model_pool_ids: Set[object] = set(unpack_ids) | set(greedy_unpacked_ids)
+        ordered_pool_ids: List[object] = []
+        seen_pool_ids: Set[object] = set()
+        for it in self.data.items:
+            if it.id not in model_pool_ids or it.id in seen_pool_ids:
+                continue
+            seen_pool_ids.add(it.id)
+            ordered_pool_ids.append(it.id)
+        _hybrid_log(
+            (
+                "selection pool (unpack_last_n + greedy_unpacked, no differentiation): "
+                f"{len(ordered_pool_ids)}"
+            ),
+            force=True,
+        )
 
         greedy_obj = float(greedy_results.get("objective_value") or 0.0)
         greedy_free = self._free_space_percent(greedy_obj)
@@ -239,17 +242,10 @@ class HybridSolverWidth:
             free_space_improvement = max(0.0, float(free_space_improvement))
             target_free_space = max(0.0, greedy_free - free_space_improvement)
 
-        ordered_pool_ids: List[object] = []
-        seen_pool_ids: Set[object] = set()
-        for it in self.data.items:
-            if it.id in model_pool_ids and it.id not in seen_pool_ids:
-                seen_pool_ids.add(it.id)
-                ordered_pool_ids.append(it.id)
-
-        if random_sample_size is None:
-            sample_size = max(0, int(unpack_last_n)) + 1
-        else:
-            sample_size = max(0, int(random_sample_size))
+        requested_sample_size = (
+            10 if random_sample_size is None else max(0, int(random_sample_size))
+        )
+        sample_size = int(requested_sample_size)
         random_iterations = max(1, int(random_iterations))
         rng = random.Random(random_seed) if random_seed is not None else random.Random()
         _hybrid_log(
@@ -261,7 +257,6 @@ class HybridSolverWidth:
         )
 
         fixed_records_base = [rec for rec in packed_records if rec.item.id not in unpack_ids]
-        fixed_item_assignments = {rec.item: (float(rec.x), int(rec.strip)) for rec in fixed_records_base}
         fixed_ids_base = {rec.item.id for rec in fixed_records_base}
         unpacked_greedy_count = len(packed_ids - fixed_ids_base)
 
@@ -277,7 +272,8 @@ class HybridSolverWidth:
         best_model_status_rank = 0
         best_model_iteration = 1
         best_model_item_ids: Set[object] = set()
-        best_forced_unpacked_ids: Set[object] = set(greedy_unpacked_ids | unpack_ids)
+        best_sampled_item_ids: Set[object] = set()
+        best_forced_unpacked_ids: Set[object] = set(model_pool_ids)
         model_time = 0.0
 
         def _status_rank(status_val: str) -> int:
@@ -288,60 +284,130 @@ class HybridSolverWidth:
             return 0
 
         for iter_idx in range(random_iterations):
-            if not ordered_pool_ids:
-                model_item_ids: Set[object] = set()
+            if not ordered_pool_ids or sample_size <= 0:
+                sampled_item_ids: Set[object] = set()
             else:
                 k = min(len(ordered_pool_ids), sample_size)
                 if k >= len(ordered_pool_ids):
                     sampled_ids = list(ordered_pool_ids)
                 else:
                     sampled_ids = rng.sample(ordered_pool_ids, k=k)
-                model_item_ids = set(sampled_ids)
+                sampled_item_ids = set(sampled_ids)
 
-            fixed_records = fixed_records_base
-            forced_unpacked_ids = (greedy_unpacked_ids | unpack_ids) - model_item_ids
+            model_item_ids = set(sampled_item_ids)
+
+            fixed_records = [rec for rec in fixed_records_base if rec.item.id not in model_item_ids]
+            forced_unpacked_ids = set(model_pool_ids - model_item_ids)
+            forced_by_window = 0
+            fixed_area = sum(float(rec.item.area) for rec in fixed_records)
+            local_min_objective = None
+            if min_total_objective is not None:
+                local_min_objective = max(0.0, float(min_total_objective) - float(fixed_area))
+                if local_min_objective <= 1e-9:
+                    local_min_objective = None
             _hybrid_log(
                 (
-                    f"iter {iter_idx + 1}/{random_iterations}: model_items={len(model_item_ids)}, "
-                    f"fixed_records={len(fixed_records)}, forced_unpacked={len(forced_unpacked_ids)}"
+                    f"iter {iter_idx + 1}/{random_iterations}: model_items={len(model_item_ids)} "
+                    f"(sampled={len(sampled_item_ids)}, forced_window={forced_by_window}), "
+                    f"fixed_records={len(fixed_records)}, forced_unpacked={len(forced_unpacked_ids)}, "
+                    f"fixed_area={fixed_area:.3f}, local_min_objective={local_min_objective}"
                 ),
                 force=True,
             )
 
+            iter_label = f"iter {iter_idx + 1}/{random_iterations}"
             iter_start = time.perf_counter()
-            _hybrid_log(f"iter {iter_idx + 1}/{random_iterations}: build model", force=True)
+            build_t0 = time.perf_counter()
+            local_model_data = self._build_local_model_data(model_item_ids)
+            if local_model_data is None or not local_model_data.items:
+                model_results = {"status": "NOT_SOLVED", "objective_value": None}
+                _hybrid_log(
+                    f"{iter_label}: local model data is empty, skip model iteration",
+                    force=True,
+                )
+                iter_time = time.perf_counter() - iter_start
+                model_time += iter_time
+                iter_status = str(model_results.get("status", "NOT_SOLVED"))
+                iter_obj = model_results.get("objective_value")
+                iter_ok = False
+                iter_rank = _status_rank(iter_status)
+                _hybrid_log(
+                    (
+                        f"iter {iter_idx + 1}/{random_iterations}: "
+                        f"status={iter_status}, objective={iter_obj}, iter_time={iter_time:.2f}s"
+                    ),
+                    force=True,
+                )
+
+                choose_iteration = iter_idx == 0
+                if not choose_iteration and not best_model_ok:
+                    if best_model_status == "NOT_SOLVED" and iter_status != "NOT_SOLVED":
+                        choose_iteration = True
+                    elif iter_rank > best_model_status_rank:
+                        choose_iteration = True
+                if choose_iteration:
+                    best_model_results = model_results
+                    best_model_status = iter_status
+                    best_model_obj = None
+                    best_model_ok = bool(iter_ok)
+                    best_model_status_rank = int(iter_rank)
+                    best_model_iteration = int(iter_idx + 1)
+                    best_model_item_ids = set(model_item_ids)
+                    best_sampled_item_ids = set(sampled_item_ids)
+                    best_forced_unpacked_ids = set(forced_unpacked_ids)
+                continue
+            _hybrid_log(
+                (
+                    f"{iter_label}: local model data prepared "
+                    f"(physical_ids={len(model_item_ids)}, expanded_items={len(local_model_data.items)})"
+                ),
+                force=True,
+            )
+
+            _hybrid_log(f"{iter_label}: build model (Problem init) start", force=True)
             problem = HybridProblem(
-                self.data,
+                local_model_data,
                 S=self.S,
-                R=self.data.R,
+                R=local_model_data.R,
                 height=self.height,
                 width=self.width,
                 solver_name=self.solver_name,
                 enable_output=model_enable_output,
-                fixed_item_assignments=fixed_item_assignments,
-                forced_unpacked_ids=forced_unpacked_ids,
+                fixed_item_assignments={},
+                forced_unpacked_ids=set(),
                 restricted_item_ids=set(model_item_ids) if use_right_crop else set(),
                 packing_x_min=packing_x_min if use_right_crop else None,
                 packing_x_max=packing_x_max if use_right_crop else None,
-                min_objective_value=min_total_objective,
+                min_objective_value=local_min_objective,
                 relative_gap=solver_gap,
                 time_limit_sec=model_time_limit_sec,
                 num_threads=model_num_threads,
                 stop_after_first_solution=stop_after_first_solution,
+                progress_callback=lambda msg, label=iter_label: _hybrid_log(
+                    f"{label}: {msg}",
+                    force=True,
+                ),
+                progress_label="[model]",
+            )
+            _hybrid_log(
+                f"{iter_label}: build model (Problem init) finished in {time.perf_counter() - build_t0:.2f}s",
+                force=True,
             )
             _hybrid_log(
                 (
-                    f"iter {iter_idx + 1}/{random_iterations}: start model.solve() "
+                    f"{iter_label}: start model.solve() "
                     f"(enable_output={bool(model_enable_output)})"
                 ),
                 force=True,
             )
             raw_model_results = problem.solve()
-            _hybrid_log(f"iter {iter_idx + 1}/{random_iterations}: model.solve() finished", force=True)
-            model_results = self._assemble_solution_with_fixed_records(
+            _hybrid_log(f"{iter_label}: model.solve() finished", force=True)
+            model_results = self._assemble_full_solution(
                 fixed_records=fixed_records,
-                model_results=raw_model_results,
-                model_item_ids=model_item_ids,
+                model_data=local_model_data,
+                local_results=raw_model_results,
+                y_offset=0.0,
+                local_height=self.height,
             )
             if model_results.get("objective_value") is not None:
                 _hybrid_log(
@@ -394,6 +460,7 @@ class HybridSolverWidth:
                 best_model_status_rank = int(iter_rank)
                 best_model_iteration = int(iter_idx + 1)
                 best_model_item_ids = set(model_item_ids)
+                best_sampled_item_ids = set(sampled_item_ids)
                 best_forced_unpacked_ids = set(forced_unpacked_ids)
                 _hybrid_log(
                     (
@@ -405,8 +472,10 @@ class HybridSolverWidth:
 
         model_results = best_model_results
         model_item_ids = best_model_item_ids
-        fixed_records = fixed_records_base
+        sampled_item_ids = best_sampled_item_ids
+        fixed_records = [rec for rec in fixed_records_base if rec.item.id not in model_item_ids]
         forced_unpacked_ids = best_forced_unpacked_ids
+        forced_by_window = 0
         _hybrid_log(
             (
                 f"model phase finished: best_iteration={best_model_iteration}, "
@@ -419,7 +488,9 @@ class HybridSolverWidth:
 
         packed_indices = [rec.idx for rec in packed_records]
         candidate_indices = [rec.idx for rec in packed_records if rec.item.id in unpack_ids]
-        fixed_indices = [rec.idx for rec in fixed_records]
+        # For panel-2 visualization keep the deterministic "after unpack_last_n" layout:
+        # greedy packed items minus the last-N unpacked candidates.
+        fixed_indices = [rec.idx for rec in fixed_records_base]
 
         visualization_payload = {
             "greedy_solution": greedy_results,
@@ -472,11 +543,13 @@ class HybridSolverWidth:
                     "unpack_last_n": int(max(0, unpack_last_n)),
                     "use_right_crop": bool(use_right_crop),
                     "used_crop_width": crop_w_clamped,
-                    "candidate_items_for_model": len(candidate_ids),
+                    "candidate_items_for_model": len(model_pool_ids),
                     "unpack_ids_count": len(unpack_ids),
                     "actual_unpacked_from_greedy": int(unpacked_greedy_count),
                     "model_pool_ids_count": len(model_pool_ids),
                     "model_item_ids_count": len(model_item_ids),
+                    "sampled_model_item_ids_count": len(sampled_item_ids),
+                    "window_forced_model_items_count": int(forced_by_window),
                     "selected_packed_items_for_model": int(selected_packed_in_model),
                     "selected_unpacked_items_for_model": int(selected_unpacked_in_model),
                     "restricted_items_in_window": len(model_item_ids),
@@ -484,7 +557,7 @@ class HybridSolverWidth:
                     "forced_unpacked_ids": len(forced_unpacked_ids),
                     "random_iterations_requested": int(random_iterations),
                     "random_iterations_executed": int(random_iterations),
-                    "random_sample_size_requested": int(sample_size),
+                    "random_sample_size_requested": int(requested_sample_size),
                     "random_sample_size": int(min(len(ordered_pool_ids), sample_size)),
                     "best_model_iteration": int(best_model_iteration),
                     "greedy_objective_value": greedy_obj,
@@ -498,7 +571,6 @@ class HybridSolverWidth:
                     "greedy_time_sec": greedy_time,
                     "model_time_sec": model_time,
                     "total_time_sec": time.perf_counter() - t0,
-                    "greedy_delta_x_used": float(greedy_dx),
                     "model_status": model_status,
                     "full_search_mode": full_search_mode,
                     "proven_global_optimal": proven_global_optimal,
@@ -523,11 +595,13 @@ class HybridSolverWidth:
                 "unpack_last_n": int(max(0, unpack_last_n)),
                 "use_right_crop": bool(use_right_crop),
                 "used_crop_width": crop_w_clamped,
-                "candidate_items_for_model": len(candidate_ids),
+                "candidate_items_for_model": len(model_pool_ids),
                 "unpack_ids_count": len(unpack_ids),
                 "actual_unpacked_from_greedy": int(unpacked_greedy_count),
                 "model_pool_ids_count": len(model_pool_ids),
                 "model_item_ids_count": len(model_item_ids),
+                "sampled_model_item_ids_count": len(sampled_item_ids),
+                "window_forced_model_items_count": int(forced_by_window),
                 "selected_packed_items_for_model": int(selected_packed_in_model),
                 "selected_unpacked_items_for_model": int(selected_unpacked_in_model),
                 "restricted_items_in_window": len(model_item_ids),
@@ -535,7 +609,7 @@ class HybridSolverWidth:
                 "forced_unpacked_ids": len(forced_unpacked_ids),
                 "random_iterations_requested": int(random_iterations),
                 "random_iterations_executed": int(random_iterations),
-                "random_sample_size_requested": int(sample_size),
+                "random_sample_size_requested": int(requested_sample_size),
                 "random_sample_size": int(min(len(ordered_pool_ids), sample_size)),
                 "best_model_iteration": int(best_model_iteration),
                 "greedy_objective_value": greedy_obj,
@@ -547,7 +621,6 @@ class HybridSolverWidth:
                 "greedy_time_sec": greedy_time,
                 "model_time_sec": model_time,
                 "total_time_sec": time.perf_counter() - t0,
-                "greedy_delta_x_used": float(greedy_dx),
                 "model_status": model_status,
                 "full_search_mode": full_search_mode,
                 "proven_global_optimal": proven_global_optimal,
@@ -704,6 +777,67 @@ class HybridSolverWidth:
             return 0.0
         free = max(0.0, container_area - float(packed_area))
         return 100.0 * free / container_area
+
+    def _collect_packed_ids_in_x_window(
+        self,
+        *,
+        packed_records: List[_PackedRecord],
+        x_min: float,
+        x_max: float,
+    ) -> Set[object]:
+        ids: Set[object] = set()
+        x_low = float(min(x_min, x_max))
+        x_high = float(max(x_min, x_max))
+        for rec in packed_records:
+            if self._record_intersects_x_window(rec, x_low=x_low, x_high=x_high):
+                ids.add(rec.item.id)
+        return ids
+
+    @staticmethod
+    def _record_intersects_x_window(rec: _PackedRecord, *, x_low: float, x_high: float) -> bool:
+        item_low = float(rec.x) + float(rec.item.xmin)
+        item_high = float(rec.x) + float(rec.item.xmax)
+        eps = 1e-9
+        return (item_high > x_low + eps) and (item_low < x_high - eps)
+
+    def _collect_packed_ids_crossing_x_line(
+        self,
+        *,
+        packed_records: List[_PackedRecord],
+        x_line: float,
+    ) -> Set[object]:
+        ids: Set[object] = set()
+        x_cut = float(x_line)
+        for rec in packed_records:
+            if self._record_crosses_x_line(rec, x_line=x_cut):
+                ids.add(rec.item.id)
+        return ids
+
+    def _collect_packed_ids_left_of_x_line(
+        self,
+        *,
+        packed_records: List[_PackedRecord],
+        x_line: float,
+    ) -> Set[object]:
+        ids: Set[object] = set()
+        x_cut = float(x_line)
+        for rec in packed_records:
+            if self._record_left_of_x_line(rec, x_line=x_cut):
+                ids.add(rec.item.id)
+        return ids
+
+    @staticmethod
+    def _record_crosses_x_line(rec: _PackedRecord, *, x_line: float) -> bool:
+        item_low = float(rec.x) + float(rec.item.xmin)
+        item_high = float(rec.x) + float(rec.item.xmax)
+        eps = 1e-9
+        return (item_low < x_line - eps) and (item_high > x_line + eps)
+
+    @staticmethod
+    def _record_left_of_x_line(rec: _PackedRecord, *, x_line: float) -> bool:
+        item_high = float(rec.x) + float(rec.item.xmax)
+        eps = 1e-9
+        return item_high <= x_line + eps
 
     def _build_local_model_data(self, model_item_ids: Set[object]) -> Optional[Data]:
         if not model_item_ids:

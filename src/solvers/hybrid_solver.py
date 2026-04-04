@@ -6,7 +6,7 @@ from typing import Dict, List, MutableMapping, Optional, Set, Tuple
 
 import numpy as np
 from shapely import affinity
-from shapely.geometry import Polygon
+from shapely.geometry import GeometryCollection, LineString, MultiLineString, MultiPoint, Point, Polygon
 
 from core.data import Data, Item
 from solvers.greedy_solver import GreedySolver
@@ -21,6 +21,14 @@ class _PackedRecord:
     y: float
     strip: int
     geom: object
+
+
+@dataclass
+class _GridAnchorSpec:
+    strip: int
+    global_x: float
+    local_shift_x: float
+    local_shift_y: float
 
 
 class HybridSolver:
@@ -40,7 +48,6 @@ class HybridSolver:
         S: int = 1,
         *,
         solver_name: str = "SCIP",
-        greedy_delta_x: float = 1.0,
         greedy_eps_area: float = 1e-6,
         greedy_enable_output: bool = True,
         greedy_log_interval_sec: float = 2.0,
@@ -56,7 +63,6 @@ class HybridSolver:
         self.width = float(width)
         self.S = int(S)
         self.solver_name = solver_name
-        self.greedy_delta_x = float(greedy_delta_x)
         self.greedy_eps_area = float(greedy_eps_area)
         self.greedy_enable_output = bool(greedy_enable_output)
         self.greedy_log_interval_sec = max(0.2, float(greedy_log_interval_sec))
@@ -80,7 +86,6 @@ class HybridSolver:
         *,
         unpack_last_n: int,
         crop_height: float,
-        greedy_delta_x: Optional[float] = None,
         use_top_crop: bool = True,
         free_space_improvement: float = 1.0,
         solver_gap: float = 1.0,
@@ -139,7 +144,6 @@ class HybridSolver:
             packing_y_min = 0.0
             packing_y_max = self.height
 
-        greedy_dx = self.greedy_delta_x if greedy_delta_x is None else float(greedy_delta_x)
         greedy_progress_on = (
             self.greedy_enable_output
             if greedy_enable_output is None
@@ -155,7 +159,6 @@ class HybridSolver:
             height=self.height,
             width=self.width,
             S=self.S,
-            delta_x=greedy_dx,
             eps_area=self.greedy_eps_area,
             enable_progress_log=greedy_progress_on,
             log_interval_sec=greedy_log_interval,
@@ -204,34 +207,59 @@ class HybridSolver:
             force=True,
         )
 
+        packed_crossing_cut_ids: Set[object] = set()
+        packed_below_cut_ids: Set[object] = set()
+        if use_top_crop:
+            packed_crossing_cut_ids = self._collect_packed_ids_crossing_y_line(
+                packed_records=packed_records,
+                y_line=packing_y_min,
+            )
+            packed_below_cut_ids = self._collect_packed_ids_below_y_line(
+                packed_records=packed_records,
+                y_line=packing_y_min,
+            )
+            _hybrid_log(
+                f"packed items crossing cut line (kept fixed): {len(packed_crossing_cut_ids)}",
+                force=True,
+            )
+            _hybrid_log(
+                f"packed items below cut line (cannot unpack): {len(packed_below_cut_ids)}",
+                force=True,
+            )
+
+        candidate_source_records = (
+            [
+                rec
+                for rec in packed_records
+                if rec.item.id not in packed_crossing_cut_ids
+                and rec.item.id not in packed_below_cut_ids
+            ]
+            if use_top_crop
+            else packed_records
+        )
         candidate_ids = self._select_candidate_ids(
-            packed_records=packed_records,
+            packed_records=candidate_source_records,
             unpack_last_n=unpack_last_n,
             max_model_unfixed_items=None,
         )
         unpack_ids: Set[object] = set(candidate_ids)
-        _hybrid_log(f"selected candidates for model: {len(unpack_ids)}", force=True)
+        _hybrid_log(f"selected unpack_last_n candidates: {len(unpack_ids)}", force=True)
 
-        model_pool_ids: Set[object] = set(unpack_ids)
-        if not lock_greedy_unpacked:
-            extra_unpacked_ids: List[object] = []
-            seen_extra_ids: Set[object] = set()
-            for it in self.data.items:
-                item_id = it.id
-                if item_id in unpack_ids:
-                    continue
-                if item_id not in greedy_unpacked_ids:
-                    continue
-                if item_id in seen_extra_ids:
-                    continue
-                seen_extra_ids.add(item_id)
-                extra_unpacked_ids.append(item_id)
-
-            if max_model_unfixed_items is not None:
-                extra_limit = max(0, int(max_model_unfixed_items))
-                extra_unpacked_ids = extra_unpacked_ids[:extra_limit]
-
-            model_pool_ids |= set(extra_unpacked_ids)
+        model_pool_ids: Set[object] = set(unpack_ids) | set(greedy_unpacked_ids)
+        ordered_pool_ids: List[object] = []
+        seen_pool_ids: Set[object] = set()
+        for it in self.data.items:
+            if it.id not in model_pool_ids or it.id in seen_pool_ids:
+                continue
+            seen_pool_ids.add(it.id)
+            ordered_pool_ids.append(it.id)
+        _hybrid_log(
+            (
+                "selection pool (unpack_last_n + greedy_unpacked, no differentiation): "
+                f"{len(ordered_pool_ids)}"
+            ),
+            force=True,
+        )
 
         greedy_obj = float(greedy_results.get("objective_value") or 0.0)
         greedy_free = self._free_space_percent(greedy_obj)
@@ -241,17 +269,10 @@ class HybridSolver:
             free_space_improvement = max(0.0, float(free_space_improvement))
             target_free_space = max(0.0, greedy_free - free_space_improvement)
 
-        ordered_pool_ids: List[object] = []
-        seen_pool_ids: Set[object] = set()
-        for it in self.data.items:
-            if it.id in model_pool_ids and it.id not in seen_pool_ids:
-                seen_pool_ids.add(it.id)
-                ordered_pool_ids.append(it.id)
-
-        if random_sample_size is None:
-            sample_size = max(0, int(unpack_last_n)) + 1
-        else:
-            sample_size = max(0, int(random_sample_size))
+        requested_sample_size = (
+            10 if random_sample_size is None else max(0, int(random_sample_size))
+        )
+        sample_size = int(requested_sample_size)
         random_iterations = max(1, int(random_iterations))
         rng = random.Random(random_seed) if random_seed is not None else random.Random()
         _hybrid_log(
@@ -263,7 +284,6 @@ class HybridSolver:
         )
 
         fixed_records_base = [rec for rec in packed_records if rec.item.id not in unpack_ids]
-        fixed_item_assignments = {rec.item: (float(rec.x), int(rec.strip)) for rec in fixed_records_base}
         fixed_ids_base = {rec.item.id for rec in fixed_records_base}
         unpacked_greedy_count = len(packed_ids - fixed_ids_base)
 
@@ -279,7 +299,9 @@ class HybridSolver:
         best_model_status_rank = 0
         best_model_iteration = 1
         best_model_item_ids: Set[object] = set()
-        best_forced_unpacked_ids: Set[object] = set(greedy_unpacked_ids | unpack_ids)
+        best_sampled_item_ids: Set[object] = set()
+        best_forced_unpacked_ids: Set[object] = set(model_pool_ids)
+        best_min_objective_fallback_used = False
         model_time = 0.0
 
         def _status_rank(status_val: str) -> int:
@@ -290,67 +312,231 @@ class HybridSolver:
             return 0
 
         for iter_idx in range(random_iterations):
-            if not ordered_pool_ids:
-                model_item_ids: Set[object] = set()
+            if not ordered_pool_ids or sample_size <= 0:
+                sampled_item_ids: Set[object] = set()
             else:
                 k = min(len(ordered_pool_ids), sample_size)
                 if k >= len(ordered_pool_ids):
                     sampled_ids = list(ordered_pool_ids)
                 else:
                     sampled_ids = rng.sample(ordered_pool_ids, k=k)
-                model_item_ids = set(sampled_ids)
+                sampled_item_ids = set(sampled_ids)
 
-            fixed_records = fixed_records_base
-            forced_unpacked_ids = (greedy_unpacked_ids | unpack_ids) - model_item_ids
+            model_item_ids = set(sampled_item_ids)
+
+            fixed_records = [rec for rec in fixed_records_base if rec.item.id not in model_item_ids]
+            forced_unpacked_ids = set(model_pool_ids - model_item_ids)
+            forced_by_window = 0
+            fixed_blocker_records = (
+                [
+                    rec
+                    for rec in fixed_records
+                    if self._record_intersects_y_window(
+                        rec,
+                        y_low=packing_y_min,
+                        y_high=packing_y_max,
+                    )
+                ]
+                if use_top_crop
+                else list(fixed_records)
+            )
+            fixed_grid_anchor_specs = self._build_fixed_grid_anchor_specs(
+                fixed_blocker_records=fixed_blocker_records,
+            )
+            fixed_seed_overrides = self._build_seed_overrides_for_fixed_grid_anchors(
+                fixed_blocker_records=fixed_blocker_records,
+                fixed_grid_anchor_specs=fixed_grid_anchor_specs,
+            )
+            fixed_blocker_ids = {rec.item.id for rec in fixed_blocker_records}
+            local_data_item_ids = set(model_item_ids) | set(fixed_blocker_ids)
+
+            fixed_area = sum(float(rec.item.area) for rec in fixed_records)
+            fixed_blocker_area = sum(float(rec.item.area) for rec in fixed_blocker_records)
+            fixed_area_outside_local = max(0.0, float(fixed_area) - float(fixed_blocker_area))
+            local_min_objective = None
+            if min_total_objective is not None:
+                local_min_objective = max(
+                    0.0,
+                    float(min_total_objective) - float(fixed_area_outside_local),
+                )
+                if local_min_objective <= 1e-9:
+                    local_min_objective = None
             _hybrid_log(
                 (
-                    f"iter {iter_idx + 1}/{random_iterations}: model_items={len(model_item_ids)}, "
-                    f"fixed_records={len(fixed_records)}, forced_unpacked={len(forced_unpacked_ids)}"
+                    f"iter {iter_idx + 1}/{random_iterations}: model_items={len(model_item_ids)} "
+                    f"(sampled={len(sampled_item_ids)}, forced_window={forced_by_window}), "
+                    f"fixed_records={len(fixed_records)}, forced_unpacked={len(forced_unpacked_ids)}, "
+                    f"fixed_blockers={len(fixed_blocker_records)}, "
+                    f"grid_anchored_fixed={len(fixed_grid_anchor_specs)}, "
+                    f"fixed_area={fixed_area:.3f}, local_min_objective={local_min_objective}"
                 ),
                 force=True,
             )
 
+            iter_label = f"iter {iter_idx + 1}/{random_iterations}"
             iter_start = time.perf_counter()
-            _hybrid_log(f"iter {iter_idx + 1}/{random_iterations}: build model", force=True)
-            problem = HybridProblem(
-                self.data,
-                S=self.S,
-                R=self.data.R,
-                height=self.height,
-                width=self.width,
-                solver_name=self.solver_name,
-                enable_output=model_enable_output,
-                fixed_item_assignments=fixed_item_assignments,
-                forced_unpacked_ids=forced_unpacked_ids,
-                restricted_item_ids=set(model_item_ids) if use_top_crop else set(),
-                packing_y_min=packing_y_min if use_top_crop else None,
-                packing_y_max=packing_y_max if use_top_crop else None,
-                min_objective_value=min_total_objective,
-                relative_gap=solver_gap,
-                time_limit_sec=model_time_limit_sec,
-                num_threads=model_num_threads,
-                stop_after_first_solution=stop_after_first_solution,
+            local_model_data = self._build_local_model_data(
+                local_data_item_ids,
+                seed_overrides_by_id=fixed_seed_overrides,
             )
+            if local_model_data is None or not local_model_data.items:
+                model_results = {"status": "NOT_SOLVED", "objective_value": None}
+                _hybrid_log(
+                    f"{iter_label}: local model data is empty, skip model iteration",
+                    force=True,
+                )
+                iter_time = time.perf_counter() - iter_start
+                model_time += iter_time
+                iter_status = str(model_results.get("status", "NOT_SOLVED"))
+                iter_obj = model_results.get("objective_value")
+                iter_ok = False
+                iter_rank = _status_rank(iter_status)
+                _hybrid_log(
+                    (
+                        f"iter {iter_idx + 1}/{random_iterations}: "
+                        f"status={iter_status}, objective={iter_obj}, iter_time={iter_time:.2f}s"
+                    ),
+                    force=True,
+                )
+
+                choose_iteration = iter_idx == 0
+                if not choose_iteration and not best_model_ok:
+                    if best_model_status == "NOT_SOLVED" and iter_status != "NOT_SOLVED":
+                        choose_iteration = True
+                    elif iter_rank > best_model_status_rank:
+                        choose_iteration = True
+                if choose_iteration:
+                    best_model_results = model_results
+                    best_model_status = iter_status
+                    best_model_obj = None
+                    best_model_ok = bool(iter_ok)
+                    best_model_status_rank = int(iter_rank)
+                    best_model_iteration = int(iter_idx + 1)
+                    best_model_item_ids = set(model_item_ids)
+                    best_sampled_item_ids = set(sampled_item_ids)
+                    best_forced_unpacked_ids = set(forced_unpacked_ids)
+                    best_min_objective_fallback_used = False
+                continue
+            local_fixed_assignments = self._build_local_fixed_assignments(
+                model_data=local_model_data,
+                fixed_records=fixed_blocker_records,
+                fixed_grid_anchor_specs=fixed_grid_anchor_specs,
+            )
+            # Keep all fixed greedy placements in final merge (including blockers
+            # that were also added to local model only for overlap constraints).
+            # This preserves their original continuous Y from greedy instead of
+            # snapping them to strip*h through local model reconstruction.
+            fixed_records_for_merge = list(fixed_records)
+            iter_used_min_objective_fallback = False
             _hybrid_log(
                 (
-                    f"iter {iter_idx + 1}/{random_iterations}: start model.solve() "
-                    f"(enable_output={bool(model_enable_output)})"
+                    f"{iter_label}: local model data prepared "
+                    f"(physical_ids={len(model_item_ids)}, fixed_blockers={len(fixed_blocker_ids)}, "
+                    f"expanded_items={len(local_model_data.items)})"
                 ),
                 force=True,
             )
-            raw_model_results = problem.solve()
-            _hybrid_log(f"iter {iter_idx + 1}/{random_iterations}: model.solve() finished", force=True)
-            model_results = self._assemble_solution_with_fixed_records(
-                fixed_records=fixed_records,
-                model_results=raw_model_results,
-                model_item_ids=model_item_ids,
+
+            def _solve_local_problem_once(
+                min_objective_value: Optional[float],
+                *,
+                run_label: str,
+            ) -> dict:
+                run_build_t0 = time.perf_counter()
+                min_obj_text = (
+                    "None"
+                    if min_objective_value is None
+                    else f"{float(min_objective_value):.6f}"
+                )
+                _hybrid_log(
+                    (
+                        f"{iter_label}: build model (Problem init) start "
+                        f"[run={run_label}, min_objective={min_obj_text}]"
+                    ),
+                    force=True,
+                )
+                problem = HybridProblem(
+                    local_model_data,
+                    S=self.S,
+                    R=local_model_data.R,
+                    height=self.height,
+                    width=self.width,
+                    solver_name=self.solver_name,
+                    enable_output=model_enable_output,
+                    fixed_item_assignments=local_fixed_assignments,
+                    no_lower_y_bound_item_ids=set(fixed_grid_anchor_specs.keys()),
+                    forced_unpacked_ids=set(),
+                    restricted_item_ids=set(model_item_ids) if use_top_crop else set(),
+                    packing_y_min=packing_y_min if use_top_crop else None,
+                    packing_y_max=packing_y_max if use_top_crop else None,
+                    min_objective_value=min_objective_value,
+                    relative_gap=solver_gap,
+                    time_limit_sec=model_time_limit_sec,
+                    num_threads=model_num_threads,
+                    stop_after_first_solution=stop_after_first_solution,
+                    progress_callback=lambda msg, label=iter_label: _hybrid_log(
+                        f"{label}: {msg}",
+                        force=True,
+                    ),
+                    progress_label="[model]",
+                )
+                _hybrid_log(
+                    (
+                        f"{iter_label}: build model (Problem init) finished in "
+                        f"{time.perf_counter() - run_build_t0:.2f}s [run={run_label}]"
+                    ),
+                    force=True,
+                )
+                _hybrid_log(
+                    (
+                        f"{iter_label}: start model.solve() "
+                        f"(enable_output={bool(model_enable_output)}, run={run_label})"
+                    ),
+                    force=True,
+                )
+                run_results = problem.solve()
+                run_status = str(run_results.get("status", "NOT_SOLVED"))
+                _hybrid_log(
+                    f"{iter_label}: model.solve() finished [run={run_label}, status={run_status}]",
+                    force=True,
+                )
+                return run_results
+
+            raw_model_results = _solve_local_problem_once(
+                local_min_objective,
+                run_label="primary",
+            )
+            primary_status = str(raw_model_results.get("status", "NOT_SOLVED"))
+            if primary_status == "INFEASIBLE" and local_min_objective is not None:
+                iter_used_min_objective_fallback = True
+                _hybrid_log(
+                    (
+                        f"{iter_label}: primary run is INFEASIBLE with "
+                        f"local_min_objective={float(local_min_objective):.6f}; "
+                        "retry without minimum-quality constraint"
+                    ),
+                    force=True,
+                )
+                raw_model_results = _solve_local_problem_once(
+                    None,
+                    run_label="fallback_no_min_objective",
+                )
+            model_results = self._assemble_full_solution(
+                fixed_records=fixed_records_for_merge,
+                model_data=local_model_data,
+                local_results=raw_model_results,
+                y_offset=0.0,
+                local_height=self.height,
             )
             if model_results.get("objective_value") is not None:
                 _hybrid_log(
                     f"iter {iter_idx + 1}/{random_iterations}: check overlaps in merged solution",
                     force=True,
                 )
-            if model_results.get("objective_value") is not None and self._has_solution_overlaps(model_results):
+            if model_results.get("objective_value") is not None and self._has_solution_overlaps(
+                model_results,
+                active_item_ids=set(model_item_ids),
+            ):
                 model_results = {"status": "INFEASIBLE", "objective_value": None}
                 _hybrid_log(
                     f"iter {iter_idx + 1}/{random_iterations}: overlap detected, mark as INFEASIBLE",
@@ -396,7 +582,9 @@ class HybridSolver:
                 best_model_status_rank = int(iter_rank)
                 best_model_iteration = int(iter_idx + 1)
                 best_model_item_ids = set(model_item_ids)
+                best_sampled_item_ids = set(sampled_item_ids)
                 best_forced_unpacked_ids = set(forced_unpacked_ids)
+                best_min_objective_fallback_used = bool(iter_used_min_objective_fallback)
                 _hybrid_log(
                     (
                         f"iter {iter_idx + 1}/{random_iterations}: new best "
@@ -407,8 +595,10 @@ class HybridSolver:
 
         model_results = best_model_results
         model_item_ids = best_model_item_ids
-        fixed_records = fixed_records_base
+        sampled_item_ids = best_sampled_item_ids
+        fixed_records = [rec for rec in fixed_records_base if rec.item.id not in model_item_ids]
         forced_unpacked_ids = best_forced_unpacked_ids
+        forced_by_window = 0
         _hybrid_log(
             (
                 f"model phase finished: best_iteration={best_model_iteration}, "
@@ -421,7 +611,9 @@ class HybridSolver:
 
         packed_indices = [rec.idx for rec in packed_records]
         candidate_indices = [rec.idx for rec in packed_records if rec.item.id in unpack_ids]
-        fixed_indices = [rec.idx for rec in fixed_records]
+        # For panel-2 visualization keep the deterministic "after unpack_last_n" layout:
+        # greedy packed items minus the last-N unpacked candidates.
+        fixed_indices = [rec.idx for rec in fixed_records_base]
 
         visualization_payload = {
             "greedy_solution": greedy_results,
@@ -474,11 +666,13 @@ class HybridSolver:
                     "unpack_last_n": int(max(0, unpack_last_n)),
                     "use_top_crop": bool(use_top_crop),
                     "used_crop_height": crop_h_clamped,
-                    "candidate_items_for_model": len(candidate_ids),
+                    "candidate_items_for_model": len(model_pool_ids),
                     "unpack_ids_count": len(unpack_ids),
                     "actual_unpacked_from_greedy": int(unpacked_greedy_count),
                     "model_pool_ids_count": len(model_pool_ids),
                     "model_item_ids_count": len(model_item_ids),
+                    "sampled_model_item_ids_count": len(sampled_item_ids),
+                    "window_forced_model_items_count": int(forced_by_window),
                     "selected_packed_items_for_model": int(selected_packed_in_model),
                     "selected_unpacked_items_for_model": int(selected_unpacked_in_model),
                     "restricted_items_in_window": len(model_item_ids),
@@ -486,7 +680,7 @@ class HybridSolver:
                     "forced_unpacked_ids": len(forced_unpacked_ids),
                     "random_iterations_requested": int(random_iterations),
                     "random_iterations_executed": int(random_iterations),
-                    "random_sample_size_requested": int(sample_size),
+                    "random_sample_size_requested": int(requested_sample_size),
                     "random_sample_size": int(min(len(ordered_pool_ids), sample_size)),
                     "best_model_iteration": int(best_model_iteration),
                     "greedy_objective_value": greedy_obj,
@@ -500,8 +694,8 @@ class HybridSolver:
                     "greedy_time_sec": greedy_time,
                     "model_time_sec": model_time,
                     "total_time_sec": time.perf_counter() - t0,
-                    "greedy_delta_x_used": float(greedy_dx),
                     "model_status": model_status,
+                    "min_objective_fallback_used": bool(best_min_objective_fallback_used),
                     "full_search_mode": full_search_mode,
                     "proven_global_optimal": proven_global_optimal,
                     "can_claim_no_improvement": can_claim_no_improvement,
@@ -525,11 +719,13 @@ class HybridSolver:
                 "unpack_last_n": int(max(0, unpack_last_n)),
                 "use_top_crop": bool(use_top_crop),
                 "used_crop_height": crop_h_clamped,
-                "candidate_items_for_model": len(candidate_ids),
+                "candidate_items_for_model": len(model_pool_ids),
                 "unpack_ids_count": len(unpack_ids),
                 "actual_unpacked_from_greedy": int(unpacked_greedy_count),
                 "model_pool_ids_count": len(model_pool_ids),
                 "model_item_ids_count": len(model_item_ids),
+                "sampled_model_item_ids_count": len(sampled_item_ids),
+                "window_forced_model_items_count": int(forced_by_window),
                 "selected_packed_items_for_model": int(selected_packed_in_model),
                 "selected_unpacked_items_for_model": int(selected_unpacked_in_model),
                 "restricted_items_in_window": len(model_item_ids),
@@ -537,7 +733,7 @@ class HybridSolver:
                 "forced_unpacked_ids": len(forced_unpacked_ids),
                 "random_iterations_requested": int(random_iterations),
                 "random_iterations_executed": int(random_iterations),
-                "random_sample_size_requested": int(sample_size),
+                "random_sample_size_requested": int(requested_sample_size),
                 "random_sample_size": int(min(len(ordered_pool_ids), sample_size)),
                 "best_model_iteration": int(best_model_iteration),
                 "greedy_objective_value": greedy_obj,
@@ -549,8 +745,8 @@ class HybridSolver:
                 "greedy_time_sec": greedy_time,
                 "model_time_sec": model_time,
                 "total_time_sec": time.perf_counter() - t0,
-                "greedy_delta_x_used": float(greedy_dx),
                 "model_status": model_status,
+                "min_objective_fallback_used": bool(best_min_objective_fallback_used),
                 "full_search_mode": full_search_mode,
                 "proven_global_optimal": proven_global_optimal,
             },
@@ -707,10 +903,190 @@ class HybridSolver:
         free = max(0.0, container_area - float(packed_area))
         return 100.0 * free / container_area
 
-    def _build_local_model_data(self, model_item_ids: Set[object]) -> Optional[Data]:
+    def _collect_packed_ids_in_y_window(
+        self,
+        *,
+        packed_records: List[_PackedRecord],
+        y_min: float,
+        y_max: float,
+    ) -> Set[object]:
+        ids: Set[object] = set()
+        y_low = float(min(y_min, y_max))
+        y_high = float(max(y_min, y_max))
+        for rec in packed_records:
+            if self._record_intersects_y_window(rec, y_low=y_low, y_high=y_high):
+                ids.add(rec.item.id)
+        return ids
+
+    @staticmethod
+    def _record_intersects_y_window(rec: _PackedRecord, *, y_low: float, y_high: float) -> bool:
+        item_low = float(rec.y) + float(rec.item.ymin)
+        item_high = float(rec.y) + float(rec.item.ymax)
+        eps = 1e-9
+        return (item_high > y_low + eps) and (item_low < y_high - eps)
+
+    def _collect_packed_ids_crossing_y_line(
+        self,
+        *,
+        packed_records: List[_PackedRecord],
+        y_line: float,
+    ) -> Set[object]:
+        ids: Set[object] = set()
+        y_cut = float(y_line)
+        for rec in packed_records:
+            if self._record_crosses_y_line(rec, y_line=y_cut):
+                ids.add(rec.item.id)
+        return ids
+
+    def _collect_packed_ids_below_y_line(
+        self,
+        *,
+        packed_records: List[_PackedRecord],
+        y_line: float,
+    ) -> Set[object]:
+        ids: Set[object] = set()
+        y_cut = float(y_line)
+        for rec in packed_records:
+            if self._record_below_y_line(rec, y_line=y_cut):
+                ids.add(rec.item.id)
+        return ids
+
+    @staticmethod
+    def _record_crosses_y_line(rec: _PackedRecord, *, y_line: float) -> bool:
+        item_low = float(rec.y) + float(rec.item.ymin)
+        item_high = float(rec.y) + float(rec.item.ymax)
+        eps = 1e-9
+        return (item_low < y_line - eps) and (item_high > y_line + eps)
+
+    @staticmethod
+    def _record_below_y_line(rec: _PackedRecord, *, y_line: float) -> bool:
+        item_high = float(rec.y) + float(rec.item.ymax)
+        eps = 1e-9
+        return item_high <= y_line + eps
+
+    def _build_fixed_grid_anchor_specs(
+        self,
+        *,
+        fixed_blocker_records: List[_PackedRecord],
+    ) -> Dict[object, _GridAnchorSpec]:
+        specs: Dict[object, _GridAnchorSpec] = {}
+        if self.S <= 1:
+            return specs
+        for rec in fixed_blocker_records:
+            item_id = rec.item.id
+            if item_id in specs:
+                continue
+            spec = self._pick_grid_anchor_spec_for_record(rec)
+            if spec is None:
+                continue
+            specs[item_id] = spec
+        return specs
+
+    def _build_seed_overrides_for_fixed_grid_anchors(
+        self,
+        *,
+        fixed_blocker_records: List[_PackedRecord],
+        fixed_grid_anchor_specs: Dict[object, _GridAnchorSpec],
+    ) -> Dict[object, Item]:
+        overrides: Dict[object, Item] = {}
+        if not fixed_grid_anchor_specs:
+            return overrides
+
+        for rec in fixed_blocker_records:
+            item_id = rec.item.id
+            spec = fixed_grid_anchor_specs.get(item_id)
+            if spec is None or item_id in overrides:
+                continue
+
+            src_pts = np.asarray(rec.item.points, dtype=float)
+            shift_vec = np.array([float(spec.local_shift_x), float(spec.local_shift_y)], dtype=float)
+            shifted_pts = src_pts - shift_vec
+
+            # Preserve exact shifted coordinates: Item() normalizes by first point,
+            # so we explicitly restore the intended point cloud afterward.
+            seed = self._make_item_with_exact_points(shifted_pts)
+            seed.id = item_id
+            seed.rotation = float(rec.item.rotation) % 360.0
+            overrides[item_id] = seed
+
+        return overrides
+
+    def _pick_grid_anchor_spec_for_record(self, rec: _PackedRecord) -> Optional[_GridAnchorSpec]:
+        if self.S <= 1:
+            return None
+        h = float(self.height) / float(self.S)
+        if h <= 0.0:
+            return None
+
+        for strip_idx in range(1, self.S):
+            y_line = float(strip_idx) * h
+            point = self._pick_intersection_point_with_y_line(rec.geom, y_line)
+            if point is None:
+                continue
+            px, py = point
+            return _GridAnchorSpec(
+                strip=int(strip_idx),
+                global_x=float(px),
+                local_shift_x=float(px) - float(rec.x),
+                local_shift_y=float(py) - float(rec.y),
+            )
+        return None
+
+    def _pick_intersection_point_with_y_line(
+        self,
+        geom,
+        y_line: float,
+    ) -> Optional[Tuple[float, float]]:
+        line = LineString([(0.0, float(y_line)), (float(self.width), float(y_line))])
+        inter = geom.intersection(line)
+        if inter.is_empty:
+            return None
+
+        candidates: List[Tuple[float, float]] = []
+
+        def _collect_points(g) -> None:
+            if g is None or g.is_empty:
+                return
+            if isinstance(g, Point):
+                candidates.append((float(g.x), float(g.y)))
+                return
+            if isinstance(g, MultiPoint):
+                for sub in g.geoms:
+                    _collect_points(sub)
+                return
+            if isinstance(g, LineString):
+                xs = [float(pt[0]) for pt in g.coords]
+                if not xs:
+                    return
+                candidates.append((min(xs), float(y_line)))
+                return
+            if isinstance(g, MultiLineString):
+                for sub in g.geoms:
+                    _collect_points(sub)
+                return
+            if isinstance(g, GeometryCollection):
+                for sub in g.geoms:
+                    _collect_points(sub)
+                return
+
+        _collect_points(inter)
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda p: (p[0], p[1]))
+        px, py = candidates[0]
+        return float(px), float(py)
+
+    def _build_local_model_data(
+        self,
+        model_item_ids: Set[object],
+        *,
+        seed_overrides_by_id: Optional[Dict[object, Item]] = None,
+    ) -> Optional[Data]:
         if not model_item_ids:
             return None
 
+        seed_overrides = seed_overrides_by_id or {}
         source_by_id: Dict[object, Item] = {}
         for it in self.data.items:
             if it.id not in model_item_ids:
@@ -720,14 +1096,30 @@ class HybridSolver:
             if abs(float(it.rotation) % 360.0) <= 1e-6:
                 source_by_id[it.id] = it
 
+        ordered_ids: List[object] = []
+        seen_ids: Set[object] = set()
+        for it in self.data.items:
+            if it.id not in model_item_ids or it.id in seen_ids:
+                continue
+            seen_ids.add(it.id)
+            ordered_ids.append(it.id)
+
         seeds: List[Item] = []
-        for item_id in model_item_ids:
-            src = source_by_id.get(item_id)
+        for item_id in ordered_ids:
+            src = seed_overrides.get(item_id)
+            src_from_override = src is not None
+            if src is None:
+                src = source_by_id.get(item_id)
             if src is None:
                 continue
-            clone = Item(np.asarray(src.points, dtype=float).copy())
+
+            src_points = np.asarray(src.points, dtype=float).copy()
+            if src_from_override:
+                clone = self._make_item_with_exact_points(src_points)
+            else:
+                clone = Item(src_points)
             clone.id = src.id
-            clone.rotation = 0
+            clone.rotation = float(getattr(src, "rotation", 0.0)) % 360.0
             seeds.append(clone)
 
         if not seeds:
@@ -749,6 +1141,79 @@ class HybridSolver:
             use_memory_cache=bool(getattr(self.data, "use_memory_cache", True)),
             shared_memory_cache=getattr(self.data, "memory_cache", None),
         )
+
+    @staticmethod
+    def _make_item_with_exact_points(points: np.ndarray) -> Item:
+        pts = np.asarray(points, dtype=float).copy()
+        item = Item(pts.copy())
+
+        item.points = pts
+        poly = Polygon(pts)
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        item.polygon = poly
+        item.area = float(poly.area)
+
+        if pts.size == 0:
+            item.xmin = 0.0
+            item.xmax = 0.0
+            item.ymin = 0.0
+            item.ymax = 0.0
+            return item
+
+        item.xmin = float(np.min(pts[:, 0]))
+        item.xmax = float(np.max(pts[:, 0]))
+        item.ymin = float(np.min(pts[:, 1]))
+        item.ymax = float(np.max(pts[:, 1]))
+        return item
+
+    def _build_local_fixed_assignments(
+        self,
+        *,
+        model_data: Optional[Data],
+        fixed_records: List[_PackedRecord],
+        fixed_grid_anchor_specs: Optional[Dict[object, _GridAnchorSpec]] = None,
+    ) -> Dict[Item, Tuple[float, int]]:
+        assignments: Dict[Item, Tuple[float, int]] = {}
+        if model_data is None or not model_data.items or not fixed_records:
+            return assignments
+
+        grid_specs = fixed_grid_anchor_specs or {}
+        by_id_rot: Dict[Tuple[object, int], List[Item]] = defaultdict(list)
+        by_id: Dict[object, List[Item]] = defaultdict(list)
+        for it in model_data.items:
+            rot_key = int(round(float(it.rotation))) % 360
+            by_id_rot[(it.id, rot_key)].append(it)
+            by_id[it.id].append(it)
+
+        assigned_ids: Set[object] = set()
+        for rec in fixed_records:
+            item_id = rec.item.id
+            if item_id in assigned_ids:
+                continue
+
+            rot_key = int(round(float(rec.item.rotation))) % 360
+            candidates = by_id_rot.get((item_id, rot_key), [])
+            local_item = candidates[0] if candidates else None
+            if local_item is None:
+                fallback = by_id.get(item_id, [])
+                local_item = fallback[0] if fallback else None
+            if local_item is None:
+                continue
+
+            spec = grid_specs.get(item_id)
+            if spec is not None:
+                x_value = float(spec.global_x)
+                strip_idx = int(spec.strip)
+            else:
+                x_value = float(rec.x)
+                strip_idx = int(rec.strip)
+
+            strip_idx = max(0, min(self.S - 1, strip_idx))
+            assignments[local_item] = (x_value, int(strip_idx))
+            assigned_ids.add(item_id)
+
+        return assignments
 
     def _assemble_solution_with_fixed_records(
         self,
@@ -851,11 +1316,13 @@ class HybridSolver:
         deltas = [[0.0 for _ in range(self.S)] for _ in range(n_full)]
 
         used_indices: Set[int] = set()
+        used_item_ids: Set[object] = set()
         total_area = 0.0
 
         for rec in fixed_records:
             idx = rec.idx
             used_indices.add(idx)
+            used_item_ids.add(rec.item.id)
             p[idx] = 1.0
             x[idx] = float(rec.x)
             y[idx] = float(rec.y)
@@ -881,6 +1348,8 @@ class HybridSolver:
             for li, lit in enumerate(model_data.items):
                 if li >= len(local_p) or float(local_p[li]) <= 0.5:
                     continue
+                if lit.id in used_item_ids:
+                    continue
 
                 rot_key = int(round(float(lit.rotation))) % 360
                 candidates = by_id_rot.get((lit.id, rot_key), [])
@@ -892,6 +1361,7 @@ class HybridSolver:
                     continue
 
                 used_indices.add(full_idx)
+                used_item_ids.add(lit.id)
                 local_x_val = float(local_x[li]) if li < len(local_x) else 0.0
                 if li < len(local_s):
                     local_strip = int(round(float(local_s[li])))
@@ -922,7 +1392,12 @@ class HybridSolver:
             "objective_value": total_area,
         }
 
-    def _has_solution_overlaps(self, solution: dict) -> bool:
+    def _has_solution_overlaps(
+        self,
+        solution: dict,
+        *,
+        active_item_ids: Optional[Set[object]] = None,
+    ) -> bool:
         p_vals = solution.get("p", [])
         x_vals = solution.get("x", [])
         y_vals = solution.get("y", [])
@@ -940,13 +1415,15 @@ class HybridSolver:
                 y_val = float(s_vals[idx]) * float(h)
             else:
                 y_val = 0.0
-            placed.append(self._placed_geometry(it, x_val, y_val))
+            placed.append((it.id, self._placed_geometry(it, x_val, y_val)))
 
         eps_area = max(1e-9, float(self.greedy_eps_area))
         for i in range(len(placed)):
-            ga = placed[i]
+            id_a, ga = placed[i]
             for j in range(i + 1, len(placed)):
-                gb = placed[j]
+                id_b, gb = placed[j]
+                if active_item_ids and (id_a not in active_item_ids) and (id_b not in active_item_ids):
+                    continue
                 if (
                     ga.bounds[2] <= gb.bounds[0]
                     or gb.bounds[2] <= ga.bounds[0]

@@ -53,7 +53,6 @@ class GreedySolver:
         height: float,
         width: float,
         S: int = 1,
-        delta_x: float = 1.0,
         eps_area: float = 1e-6,
         enable_progress_log: bool = False,
         log_interval_sec: float = 2.0,
@@ -68,9 +67,6 @@ class GreedySolver:
         self.width = float(width)
         self.S = max(1, int(S))
         self.h = self.height / self.S
-        # Kept for backward compatibility with callers.
-        # In continuous BLF mode this value is intentionally unused.
-        self.delta_x = max(float(delta_x), 1e-12)
         self.eps_area = float(eps_area)
         self._eps_shift = 1e-9
         self._coord_eps = 1e-8
