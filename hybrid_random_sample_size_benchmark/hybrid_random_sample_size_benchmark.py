@@ -34,9 +34,9 @@ WIDTH = 10000.0
 S_VALUE = 5
 
 # Loop by RANDOM_SAMPLE_SIZE: start, step, stop.
-RANDOM_SAMPLE_SIZE_START = 5
-RANDOM_SAMPLE_SIZE_STEP = 5
-RANDOM_SAMPLE_SIZE_END = 25
+RANDOM_SAMPLE_SIZE_START = 1
+RANDOM_SAMPLE_SIZE_STEP = 1
+RANDOM_SAMPLE_SIZE_END = 7
 
 # Hybrid solver params (same idea as in test_hybrid_basic).
 UNPACK_LAST_N = 6
@@ -49,8 +49,8 @@ STOP_AFTER_FIRST_SOLUTION = False
 MODEL_ENABLE_OUTPUT = True
 LOCK_GREEDY_UNPACKED = False
 MAX_MODEL_UNFIXED_ITEMS = None
-RANDOM_ITERATIONS = 5
-RANDOM_SEED = 12
+RANDOM_ITERATIONS = 1
+RANDOM_SEED = None
 GREEDY_ENABLE_OUTPUT = True
 HYBRID_ENABLE_OUTPUT = True
 
@@ -94,6 +94,7 @@ def build_summary_text(results: list[dict]) -> str:
             f" | status={row['status']}"
             f" | model_status={row['model_status']}"
             f" | final_objective={row['final_objective']}"
+            f" | random_seed_used={row['random_seed_used']}"
         )
 
     valid_rows = [r for r in results if r.get("model_time_sec") is not None]
@@ -128,6 +129,8 @@ def build_detailed_sample_text(
     run_finished: str,
 ) -> str:
     hybrid_stats = result.get("hybrid_stats", {}) if isinstance(result, dict) else {}
+    random_seed_requested = hybrid_stats.get("random_seed_requested", RANDOM_SEED)
+    random_seed_used = hybrid_stats.get("random_seed_used", RANDOM_SEED)
 
     lines = []
     lines.append(f"detailed report for RANDOM_SAMPLE_SIZE={sample_size_value}")
@@ -159,7 +162,8 @@ def build_detailed_sample_text(
     lines.append(f"lock_greedy_unpacked: {LOCK_GREEDY_UNPACKED}")
     lines.append(f"max_model_unfixed_items: {MAX_MODEL_UNFIXED_ITEMS}")
     lines.append(f"random_iterations: {RANDOM_ITERATIONS}")
-    lines.append(f"random_seed: {RANDOM_SEED}")
+    lines.append(f"random_seed_requested: {random_seed_requested}")
+    lines.append(f"random_seed_used: {random_seed_used}")
     lines.append(f"random_sample_size: {sample_size_value}")
     lines.append(f"greedy_enable_output: {GREEDY_ENABLE_OUTPUT}")
     lines.append(f"hybrid_enable_output: {HYBRID_ENABLE_OUTPUT}")
@@ -294,6 +298,7 @@ def main() -> None:
             "final_objective": hybrid_stats.get("final_objective_value"),
             "model_status": hybrid_stats.get("model_status"),
             "greedy_cache_hit": hybrid_stats.get("greedy_cache_hit"),
+            "random_seed_used": hybrid_stats.get("random_seed_used"),
         }
         all_results.append(row)
 

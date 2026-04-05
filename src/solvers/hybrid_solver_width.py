@@ -259,11 +259,17 @@ class HybridSolverWidth:
         )
         sample_size = int(requested_sample_size)
         random_iterations = max(1, int(random_iterations))
-        rng = random.Random(random_seed) if random_seed is not None else random.Random()
+        if random_seed is None:
+            random_seed_used = random.SystemRandom().randrange(0, 2**63)
+            random_seed_requested = None
+        else:
+            random_seed_used = int(random_seed)
+            random_seed_requested = int(random_seed)
+        rng = random.Random(random_seed_used)
         _hybrid_log(
             (
                 f"sampling config: pool_ids will be built, sample_size={sample_size}, "
-                f"iterations={random_iterations}, seed={random_seed}, "
+                f"iterations={random_iterations}, seed={random_seed_used}, "
                 f"require_improvement={require_improvement}"
             ),
             force=True,
@@ -313,9 +319,7 @@ class HybridSolverWidth:
             local_min_objective = None
             if min_total_objective is not None:
                 local_min_candidate = max(0.0, float(min_total_objective) - float(fixed_area))
-                # If the local subset cannot ever reach the required threshold,
-                # skip the hard threshold and let post-check decide improvement.
-                if local_min_candidate > 1e-9 and local_max_objective > local_min_candidate + 1e-9:
+                if local_min_candidate > 1e-9:
                     local_min_objective = float(local_min_candidate)
             _hybrid_log(
                 (
@@ -603,6 +607,8 @@ class HybridSolverWidth:
                     "random_iterations_executed": int(random_iterations),
                     "random_sample_size_requested": int(requested_sample_size),
                     "random_sample_size": int(min(len(ordered_pool_ids), sample_size)),
+                    "random_seed_requested": random_seed_requested,
+                    "random_seed_used": int(random_seed_used),
                     "best_model_iteration": int(best_model_iteration),
                     "greedy_objective_value": greedy_obj,
                     "model_objective_value": float(model_obj) if model_obj is not None else None,
@@ -658,6 +664,8 @@ class HybridSolverWidth:
                 "random_iterations_executed": int(random_iterations),
                 "random_sample_size_requested": int(requested_sample_size),
                 "random_sample_size": int(min(len(ordered_pool_ids), sample_size)),
+                "random_seed_requested": random_seed_requested,
+                "random_seed_used": int(random_seed_used),
                 "best_model_iteration": int(best_model_iteration),
                 "greedy_objective_value": greedy_obj,
                 "final_objective_value": final_obj,
