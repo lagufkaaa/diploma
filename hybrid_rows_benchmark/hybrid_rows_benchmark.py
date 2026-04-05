@@ -35,7 +35,7 @@ WIDTH = 7000.0
 # Loop by number of rows (S): start, step, stop.
 S_START = 5
 S_STEP = 5
-S_END = 100
+S_END = 5
 
 # Hybrid solver params (same idea as in test_hybrid_basic).
 UNPACK_LAST_N = 4

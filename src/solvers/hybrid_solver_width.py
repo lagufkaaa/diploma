@@ -79,7 +79,7 @@ class HybridSolverWidth:
         unpack_last_n: int,
         crop_width: float,
         use_right_crop: bool = True,
-        free_space_improvement: float = 1.0,
+        free_space_improvement: bool = False,
         solver_gap: float = 1.0,
         model_time_limit_sec: Optional[float] = None,
         model_num_threads: Optional[int] = None,
@@ -237,10 +237,22 @@ class HybridSolverWidth:
         greedy_obj = float(greedy_results.get("objective_value") or 0.0)
         greedy_free = self._free_space_percent(greedy_obj)
 
+        require_improvement = bool(free_space_improvement)
+        container_area = self.width * self.height
+        min_total_objective = None
+        min_improvement_area = 0.0
         target_free_space = None
-        if free_space_improvement is not None:
-            free_space_improvement = max(0.0, float(free_space_improvement))
-            target_free_space = max(0.0, greedy_free - free_space_improvement)
+        if require_improvement and container_area > 0.0:
+            # "Any improvement" is enforced as a tiny positive area delta over greedy.
+            # Use a scale-aware epsilon and cap it by the free area left in the container.
+            eps_area = max(1e-6, float(container_area) * 1e-12)
+            slack_by_capacity = max(0.0, float(container_area) - float(greedy_obj))
+            min_improvement_area = min(eps_area, slack_by_capacity)
+            if min_improvement_area > 1e-12:
+                min_total_objective = float(greedy_obj) + float(min_improvement_area)
+                target_free_space = self._free_space_percent(min_total_objective)
+            else:
+                target_free_space = float(greedy_free)
 
         requested_sample_size = (
             10 if random_sample_size is None else max(0, int(random_sample_size))
@@ -251,7 +263,8 @@ class HybridSolverWidth:
         _hybrid_log(
             (
                 f"sampling config: pool_ids will be built, sample_size={sample_size}, "
-                f"iterations={random_iterations}, seed={random_seed}"
+                f"iterations={random_iterations}, seed={random_seed}, "
+                f"require_improvement={require_improvement}"
             ),
             force=True,
         )
@@ -259,11 +272,6 @@ class HybridSolverWidth:
         fixed_records_base = [rec for rec in packed_records if rec.item.id not in unpack_ids]
         fixed_ids_base = {rec.item.id for rec in fixed_records_base}
         unpacked_greedy_count = len(packed_ids - fixed_ids_base)
-
-        min_total_objective = None
-        if target_free_space is not None:
-            container_area = self.width * self.height
-            min_total_objective = container_area * (1.0 - float(target_free_space) / 100.0)
 
         best_model_results: dict = {"status": "NOT_SOLVED", "objective_value": None}
         best_model_status = "NOT_SOLVED"
@@ -274,6 +282,7 @@ class HybridSolverWidth:
         best_model_item_ids: Set[object] = set()
         best_sampled_item_ids: Set[object] = set()
         best_forced_unpacked_ids: Set[object] = set(model_pool_ids)
+        best_min_objective_fallback_used = False
         model_time = 0.0
 
         def _status_rank(status_val: str) -> int:
@@ -300,24 +309,27 @@ class HybridSolverWidth:
             forced_unpacked_ids = set(model_pool_ids - model_item_ids)
             forced_by_window = 0
             fixed_area = sum(float(rec.item.area) for rec in fixed_records)
+            local_max_objective = self._max_packable_area_by_item_ids(model_item_ids)
             local_min_objective = None
             if min_total_objective is not None:
-                local_min_objective = max(0.0, float(min_total_objective) - float(fixed_area))
-                if local_min_objective <= 1e-9:
-                    local_min_objective = None
+                local_min_candidate = max(0.0, float(min_total_objective) - float(fixed_area))
+                # If the local subset cannot ever reach the required threshold,
+                # skip the hard threshold and let post-check decide improvement.
+                if local_min_candidate > 1e-9 and local_max_objective > local_min_candidate + 1e-9:
+                    local_min_objective = float(local_min_candidate)
             _hybrid_log(
                 (
                     f"iter {iter_idx + 1}/{random_iterations}: model_items={len(model_item_ids)} "
                     f"(sampled={len(sampled_item_ids)}, forced_window={forced_by_window}), "
                     f"fixed_records={len(fixed_records)}, forced_unpacked={len(forced_unpacked_ids)}, "
-                    f"fixed_area={fixed_area:.3f}, local_min_objective={local_min_objective}"
+                    f"fixed_area={fixed_area:.3f}, local_min_objective={local_min_objective}, "
+                    f"local_max_objective={local_max_objective:.3f}"
                 ),
                 force=True,
             )
 
             iter_label = f"iter {iter_idx + 1}/{random_iterations}"
             iter_start = time.perf_counter()
-            build_t0 = time.perf_counter()
             local_model_data = self._build_local_model_data(model_item_ids)
             if local_model_data is None or not local_model_data.items:
                 model_results = {"status": "NOT_SOLVED", "objective_value": None}
@@ -355,6 +367,7 @@ class HybridSolverWidth:
                     best_model_item_ids = set(model_item_ids)
                     best_sampled_item_ids = set(sampled_item_ids)
                     best_forced_unpacked_ids = set(forced_unpacked_ids)
+                    best_min_objective_fallback_used = False
                 continue
             _hybrid_log(
                 (
@@ -364,44 +377,91 @@ class HybridSolverWidth:
                 force=True,
             )
 
-            _hybrid_log(f"{iter_label}: build model (Problem init) start", force=True)
-            problem = HybridProblem(
-                local_model_data,
-                S=self.S,
-                R=local_model_data.R,
-                height=self.height,
-                width=self.width,
-                solver_name=self.solver_name,
-                enable_output=model_enable_output,
-                fixed_item_assignments={},
-                forced_unpacked_ids=set(),
-                restricted_item_ids=set(model_item_ids) if use_right_crop else set(),
-                packing_x_min=packing_x_min if use_right_crop else None,
-                packing_x_max=packing_x_max if use_right_crop else None,
-                min_objective_value=local_min_objective,
-                relative_gap=solver_gap,
-                time_limit_sec=model_time_limit_sec,
-                num_threads=model_num_threads,
-                stop_after_first_solution=stop_after_first_solution,
-                progress_callback=lambda msg, label=iter_label: _hybrid_log(
-                    f"{label}: {msg}",
+            iter_used_min_objective_fallback = False
+
+            def _solve_local_problem_once(
+                min_objective_value: Optional[float],
+                *,
+                run_label: str,
+            ) -> dict:
+                run_build_t0 = time.perf_counter()
+                min_obj_text = (
+                    "None"
+                    if min_objective_value is None
+                    else f"{float(min_objective_value):.6f}"
+                )
+                _hybrid_log(
+                    (
+                        f"{iter_label}: build model (Problem init) start "
+                        f"[run={run_label}, min_objective={min_obj_text}]"
+                    ),
                     force=True,
-                ),
-                progress_label="[model]",
+                )
+                problem = HybridProblem(
+                    local_model_data,
+                    S=self.S,
+                    R=local_model_data.R,
+                    height=self.height,
+                    width=self.width,
+                    solver_name=self.solver_name,
+                    enable_output=model_enable_output,
+                    fixed_item_assignments={},
+                    forced_unpacked_ids=set(),
+                    restricted_item_ids=set(model_item_ids) if use_right_crop else set(),
+                    packing_x_min=packing_x_min if use_right_crop else None,
+                    packing_x_max=packing_x_max if use_right_crop else None,
+                    min_objective_value=min_objective_value,
+                    relative_gap=solver_gap,
+                    time_limit_sec=model_time_limit_sec,
+                    num_threads=model_num_threads,
+                    stop_after_first_solution=stop_after_first_solution,
+                    progress_callback=lambda msg, label=iter_label: _hybrid_log(
+                        f"{label}: {msg}",
+                        force=True,
+                    ),
+                    progress_label="[model]",
+                )
+                _hybrid_log(
+                    (
+                        f"{iter_label}: build model (Problem init) finished in "
+                        f"{time.perf_counter() - run_build_t0:.2f}s [run={run_label}]"
+                    ),
+                    force=True,
+                )
+                _hybrid_log(
+                    (
+                        f"{iter_label}: start model.solve() "
+                        f"(enable_output={bool(model_enable_output)}, run={run_label})"
+                    ),
+                    force=True,
+                )
+                run_results = problem.solve()
+                run_status = str(run_results.get("status", "NOT_SOLVED"))
+                _hybrid_log(
+                    f"{iter_label}: model.solve() finished [run={run_label}, status={run_status}]",
+                    force=True,
+                )
+                return run_results
+
+            raw_model_results = _solve_local_problem_once(
+                local_min_objective,
+                run_label="primary",
             )
-            _hybrid_log(
-                f"{iter_label}: build model (Problem init) finished in {time.perf_counter() - build_t0:.2f}s",
-                force=True,
-            )
-            _hybrid_log(
-                (
-                    f"{iter_label}: start model.solve() "
-                    f"(enable_output={bool(model_enable_output)})"
-                ),
-                force=True,
-            )
-            raw_model_results = problem.solve()
-            _hybrid_log(f"{iter_label}: model.solve() finished", force=True)
+            primary_status = str(raw_model_results.get("status", "NOT_SOLVED"))
+            if primary_status == "INFEASIBLE" and local_min_objective is not None:
+                iter_used_min_objective_fallback = True
+                _hybrid_log(
+                    (
+                        f"{iter_label}: primary run is INFEASIBLE with "
+                        f"local_min_objective={float(local_min_objective):.6f}; "
+                        "retry without minimum-quality constraint"
+                    ),
+                    force=True,
+                )
+                raw_model_results = _solve_local_problem_once(
+                    None,
+                    run_label="fallback_no_min_objective",
+                )
             model_results = self._assemble_full_solution(
                 fixed_records=fixed_records,
                 model_data=local_model_data,
@@ -462,6 +522,7 @@ class HybridSolverWidth:
                 best_model_item_ids = set(model_item_ids)
                 best_sampled_item_ids = set(sampled_item_ids)
                 best_forced_unpacked_ids = set(forced_unpacked_ids)
+                best_min_objective_fallback_used = bool(iter_used_min_objective_fallback)
                 _hybrid_log(
                     (
                         f"iter {iter_idx + 1}/{random_iterations}: new best "
@@ -568,10 +629,13 @@ class HybridSolverWidth:
                     "final_free_space_percent": final_free_space,
                     "free_space_improvement_percent": final_improvement,
                     "target_free_space_percent": target_free_space,
+                    "require_improvement": bool(require_improvement),
+                    "min_improvement_area": float(min_improvement_area),
                     "greedy_time_sec": greedy_time,
                     "model_time_sec": model_time,
                     "total_time_sec": time.perf_counter() - t0,
                     "model_status": model_status,
+                    "min_objective_fallback_used": bool(best_min_objective_fallback_used),
                     "full_search_mode": full_search_mode,
                     "proven_global_optimal": proven_global_optimal,
                     "can_claim_no_improvement": can_claim_no_improvement,
@@ -618,10 +682,13 @@ class HybridSolverWidth:
                 "final_free_space_percent": final_free,
                 "free_space_improvement_percent": free_space_improvement_abs,
                 "target_free_space_percent": target_free_space,
+                "require_improvement": bool(require_improvement),
+                "min_improvement_area": float(min_improvement_area),
                 "greedy_time_sec": greedy_time,
                 "model_time_sec": model_time,
                 "total_time_sec": time.perf_counter() - t0,
                 "model_status": model_status,
+                "min_objective_fallback_used": bool(best_min_objective_fallback_used),
                 "full_search_mode": full_search_mode,
                 "proven_global_optimal": proven_global_optimal,
             },
@@ -777,6 +844,20 @@ class HybridSolverWidth:
             return 0.0
         free = max(0.0, container_area - float(packed_area))
         return 100.0 * free / container_area
+
+    def _max_packable_area_by_item_ids(self, item_ids: Set[object]) -> float:
+        if not item_ids:
+            return 0.0
+        best_area_by_id: Dict[object, float] = {}
+        for it in self.data.items:
+            item_id = it.id
+            if item_id not in item_ids:
+                continue
+            area = float(it.area)
+            prev = best_area_by_id.get(item_id)
+            if prev is None or area > prev:
+                best_area_by_id[item_id] = area
+        return float(sum(best_area_by_id.values()))
 
     def _collect_packed_ids_in_x_window(
         self,

@@ -87,7 +87,7 @@ class HybridSolver:
         unpack_last_n: int,
         crop_height: float,
         use_top_crop: bool = True,
-        free_space_improvement: float = 1.0,
+        free_space_improvement: bool = False,
         solver_gap: float = 1.0,
         model_time_limit_sec: Optional[float] = None,
         model_num_threads: Optional[int] = None,
@@ -264,10 +264,22 @@ class HybridSolver:
         greedy_obj = float(greedy_results.get("objective_value") or 0.0)
         greedy_free = self._free_space_percent(greedy_obj)
 
+        require_improvement = bool(free_space_improvement)
+        container_area = self.width * self.height
+        min_total_objective = None
+        min_improvement_area = 0.0
         target_free_space = None
-        if free_space_improvement is not None:
-            free_space_improvement = max(0.0, float(free_space_improvement))
-            target_free_space = max(0.0, greedy_free - free_space_improvement)
+        if require_improvement and container_area > 0.0:
+            # "Any improvement" is enforced as a tiny positive area delta over greedy.
+            # Use a scale-aware epsilon and cap it by the free area left in the container.
+            eps_area = max(1e-6, float(container_area) * 1e-12)
+            slack_by_capacity = max(0.0, float(container_area) - float(greedy_obj))
+            min_improvement_area = min(eps_area, slack_by_capacity)
+            if min_improvement_area > 1e-12:
+                min_total_objective = float(greedy_obj) + float(min_improvement_area)
+                target_free_space = self._free_space_percent(min_total_objective)
+            else:
+                target_free_space = float(greedy_free)
 
         requested_sample_size = (
             10 if random_sample_size is None else max(0, int(random_sample_size))
@@ -278,7 +290,8 @@ class HybridSolver:
         _hybrid_log(
             (
                 f"sampling config: pool_ids will be built, sample_size={sample_size}, "
-                f"iterations={random_iterations}, seed={random_seed}"
+                f"iterations={random_iterations}, seed={random_seed}, "
+                f"require_improvement={require_improvement}"
             ),
             force=True,
         )
@@ -286,11 +299,6 @@ class HybridSolver:
         fixed_records_base = [rec for rec in packed_records if rec.item.id not in unpack_ids]
         fixed_ids_base = {rec.item.id for rec in fixed_records_base}
         unpacked_greedy_count = len(packed_ids - fixed_ids_base)
-
-        min_total_objective = None
-        if target_free_space is not None:
-            container_area = self.width * self.height
-            min_total_objective = container_area * (1.0 - float(target_free_space) / 100.0)
 
         best_model_results: dict = {"status": "NOT_SOLVED", "objective_value": None}
         best_model_status = "NOT_SOLVED"
@@ -353,14 +361,18 @@ class HybridSolver:
             fixed_area = sum(float(rec.item.area) for rec in fixed_records)
             fixed_blocker_area = sum(float(rec.item.area) for rec in fixed_blocker_records)
             fixed_area_outside_local = max(0.0, float(fixed_area) - float(fixed_blocker_area))
+            local_max_objective = self._max_packable_area_by_item_ids(local_data_item_ids)
             local_min_objective = None
             if min_total_objective is not None:
-                local_min_objective = max(
+                local_min_candidate = max(
                     0.0,
                     float(min_total_objective) - float(fixed_area_outside_local),
                 )
-                if local_min_objective <= 1e-9:
-                    local_min_objective = None
+                if local_min_candidate > 1e-9:
+                    # If the local subset cannot ever reach the required threshold,
+                    # skip the hard threshold and let post-check decide improvement.
+                    if local_max_objective > local_min_candidate + 1e-9:
+                        local_min_objective = float(local_min_candidate)
             _hybrid_log(
                 (
                     f"iter {iter_idx + 1}/{random_iterations}: model_items={len(model_item_ids)} "
@@ -368,7 +380,8 @@ class HybridSolver:
                     f"fixed_records={len(fixed_records)}, forced_unpacked={len(forced_unpacked_ids)}, "
                     f"fixed_blockers={len(fixed_blocker_records)}, "
                     f"grid_anchored_fixed={len(fixed_grid_anchor_specs)}, "
-                    f"fixed_area={fixed_area:.3f}, local_min_objective={local_min_objective}"
+                    f"fixed_area={fixed_area:.3f}, local_min_objective={local_min_objective}, "
+                    f"local_max_objective={local_max_objective:.3f}"
                 ),
                 force=True,
             )
@@ -691,6 +704,8 @@ class HybridSolver:
                     "final_free_space_percent": final_free_space,
                     "free_space_improvement_percent": final_improvement,
                     "target_free_space_percent": target_free_space,
+                    "require_improvement": bool(require_improvement),
+                    "min_improvement_area": float(min_improvement_area),
                     "greedy_time_sec": greedy_time,
                     "model_time_sec": model_time,
                     "total_time_sec": time.perf_counter() - t0,
@@ -742,6 +757,8 @@ class HybridSolver:
                 "final_free_space_percent": final_free,
                 "free_space_improvement_percent": free_space_improvement_abs,
                 "target_free_space_percent": target_free_space,
+                "require_improvement": bool(require_improvement),
+                "min_improvement_area": float(min_improvement_area),
                 "greedy_time_sec": greedy_time,
                 "model_time_sec": model_time,
                 "total_time_sec": time.perf_counter() - t0,
@@ -902,6 +919,20 @@ class HybridSolver:
             return 0.0
         free = max(0.0, container_area - float(packed_area))
         return 100.0 * free / container_area
+
+    def _max_packable_area_by_item_ids(self, item_ids: Set[object]) -> float:
+        if not item_ids:
+            return 0.0
+        best_area_by_id: Dict[object, float] = {}
+        for it in self.data.items:
+            item_id = it.id
+            if item_id not in item_ids:
+                continue
+            area = float(it.area)
+            prev = best_area_by_id.get(item_id)
+            if prev is None or area > prev:
+                best_area_by_id[item_id] = area
+        return float(sum(best_area_by_id.values()))
 
     def _collect_packed_ids_in_y_window(
         self,

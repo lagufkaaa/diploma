@@ -77,7 +77,7 @@ def test_hybrid_vertical_crop_demo_improves_and_visualizes():
         unpack_last_n=4,
         crop_height=2*DEMO_HEIGHT/3,
         use_top_crop=True,
-        free_space_improvement=0.0,
+        free_space_improvement=False,
         solver_gap=0.3,
         model_time_limit_sec=8.0,
         stop_after_first_solution=False,
