@@ -440,7 +440,6 @@ class HybridSolver:
             # This preserves their original continuous Y from greedy instead of
             # snapping them to strip*h through local model reconstruction.
             fixed_records_for_merge = list(fixed_records)
-            iter_used_min_objective_fallback = False
             _hybrid_log(
                 (
                     f"{iter_label}: local model data prepared "
@@ -519,21 +518,6 @@ class HybridSolver:
                 local_min_objective,
                 run_label="primary",
             )
-            primary_status = str(raw_model_results.get("status", "NOT_SOLVED"))
-            if primary_status == "INFEASIBLE" and local_min_objective is not None:
-                iter_used_min_objective_fallback = True
-                _hybrid_log(
-                    (
-                        f"{iter_label}: primary run is INFEASIBLE with "
-                        f"local_min_objective={float(local_min_objective):.6f}; "
-                        "retry without minimum-quality constraint"
-                    ),
-                    force=True,
-                )
-                raw_model_results = _solve_local_problem_once(
-                    None,
-                    run_label="fallback_no_min_objective",
-                )
             model_results = self._assemble_full_solution(
                 fixed_records=fixed_records_for_merge,
                 model_data=local_model_data,
@@ -597,7 +581,7 @@ class HybridSolver:
                 best_model_item_ids = set(model_item_ids)
                 best_sampled_item_ids = set(sampled_item_ids)
                 best_forced_unpacked_ids = set(forced_unpacked_ids)
-                best_min_objective_fallback_used = bool(iter_used_min_objective_fallback)
+                best_min_objective_fallback_used = False
                 _hybrid_log(
                     (
                         f"iter {iter_idx + 1}/{random_iterations}: new best "

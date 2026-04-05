@@ -29,8 +29,8 @@ TIMINGS_DIR = OUTPUT_DIR / "timings"
 # ============================================================
 DATA_FILE = DATA_DIR / "car_mats_2.txt"
 R = 4
-HEIGHT = 7000.0
-WIDTH = 7000.0
+HEIGHT = 10000.0
+WIDTH = 10000.0
 
 # Loop by number of rows (S): start, step, stop.
 S_START = 5
@@ -38,9 +38,9 @@ S_STEP = 5
 S_END = 5
 
 # Hybrid solver params (same idea as in test_hybrid_basic).
-UNPACK_LAST_N = 4
+UNPACK_LAST_N = 6
 CROP_HEIGHT_RATIO = 1.0 / 3.0
-FREE_SPACE_IMPROVEMENT = 1e-5
+FREE_SPACE_IMPROVEMENT = True
 SOLVER_GAP = 1.0
 MODEL_TIME_LIMIT_SEC = 3600
 MODEL_NUM_THREADS = None
@@ -48,7 +48,7 @@ STOP_AFTER_FIRST_SOLUTION = False
 MODEL_ENABLE_OUTPUT = True
 LOCK_GREEDY_UNPACKED = False
 MAX_MODEL_UNFIXED_ITEMS = None
-RANDOM_ITERATIONS = 1
+RANDOM_ITERATIONS = 5
 RANDOM_SEED = 12
 RANDOM_SAMPLE_SIZE = 10
 GREEDY_ENABLE_OUTPUT = True
