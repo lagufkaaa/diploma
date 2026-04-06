@@ -159,3 +159,4 @@ model_formulation.tex
 .gitignore
 .gitignore
 
+cache/nfp/*.sqlite3
