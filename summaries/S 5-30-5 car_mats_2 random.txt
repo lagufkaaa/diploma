@@ -1,0 +1,13 @@
+summary (model only, without greedy/data build)
+S=5 | model_time_sec=37.602180 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=8211179070652345790
+S=10 | model_time_sec=319.591983 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=6543242911347912681
+S=15 | model_time_sec=391.410872 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=3051780515150320180
+S=20 | model_time_sec=7319.333145 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=2300792465189143303
+S=25 | model_time_sec=7418.863016 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=1727360245235884456
+S=30 | model_time_sec=7417.419601 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=9110656086535796932
+
+time_stats_model_only
+count: 6
+min_model_time_sec: 37.602180 (S=5)
+max_model_time_sec: 7418.863016 (S=25)
+avg_model_time_sec: 3817.370133

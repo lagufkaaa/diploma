@@ -1,0 +1,21 @@
+summary (model only, without greedy/data build)
+RANDOM_SAMPLE_SIZE=1 | model_time_sec=2.046533 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=8940796855218389370
+RANDOM_SAMPLE_SIZE=2 | model_time_sec=2.927498 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=8705080869726944394
+RANDOM_SAMPLE_SIZE=3 | model_time_sec=3.897042 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=1267879843952642086
+RANDOM_SAMPLE_SIZE=4 | model_time_sec=4.849990 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=5290569271203690063
+RANDOM_SAMPLE_SIZE=5 | model_time_sec=6.161617 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=8828844440009150451
+RANDOM_SAMPLE_SIZE=6 | model_time_sec=7.249367 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=4790839026233715792
+RANDOM_SAMPLE_SIZE=7 | model_time_sec=73.934173 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=214479868131170975
+RANDOM_SAMPLE_SIZE=8 | model_time_sec=299.491363 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=1753521371173535106
+RANDOM_SAMPLE_SIZE=9 | model_time_sec=1121.065636 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=6673790799399794237
+RANDOM_SAMPLE_SIZE=10 | model_time_sec=7214.564764 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=6255796627757170472
+RANDOM_SAMPLE_SIZE=11 | model_time_sec=7216.825101 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=4138037626889206099
+RANDOM_SAMPLE_SIZE=12 | model_time_sec=7219.987699 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=3869986832082463970
+RANDOM_SAMPLE_SIZE=13 | model_time_sec=7219.013880 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=5282514418652934273
+RANDOM_SAMPLE_SIZE=14 | model_time_sec=1612.360226 | status=NOT_PROVEN | model_status=ABNORMAL | final_objective=71448371.05895315 | random_seed_used=1520517277894863232
+
+time_stats_model_only
+count: 14
+min_model_time_sec: 2.046533 (RANDOM_SAMPLE_SIZE=1)
+max_model_time_sec: 7219.987699 (RANDOM_SAMPLE_SIZE=12)
+avg_model_time_sec: 2286.026778

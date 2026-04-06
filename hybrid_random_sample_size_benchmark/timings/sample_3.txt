@@ -1,9 +1,9 @@
 detailed report for RANDOM_SAMPLE_SIZE=3
-run_started: 2026-04-05T10:58:11
-run_finished: 2026-04-05T10:58:19
+run_started: 2026-04-05T11:04:02
+run_finished: 2026-04-05T11:04:06
 
 input_data
-data_file: C:\Users\user\Desktop\diploma\data_car_mats\car_mats_2.txt
+data_file: C:\Users\Администратор\Desktop\diploma\data_car_mats\car_mats_2.txt
 R: 4
 height: 10000.0
 width: 10000.0
@@ -17,7 +17,7 @@ unpack_last_n: 6
 crop_height_ratio: 0.3333333333333333
 free_space_improvement: True
 solver_gap: 1.0
-model_time_limit_sec: 3600
+model_time_limit_sec: 7200
 model_num_threads: None
 stop_after_first_solution: False
 model_enable_output: True
@@ -25,7 +25,7 @@ lock_greedy_unpacked: False
 max_model_unfixed_items: None
 random_iterations: 1
 random_seed_requested: None
-random_seed_used: 7687343948724746725
+random_seed_used: 1267879843952642086
 random_sample_size: 3
 greedy_enable_output: True
 hybrid_enable_output: True
@@ -34,13 +34,13 @@ greedy_result_cache_path: None
 greedy_result_cache_ttl_days: None
 
 run_result
-time_sec: 7.623508
+time_sec: 3.916636
 status: NOT_PROVEN
 selected_solution: greedy
 final_objective: 71448371.05895315
 model_status: INFEASIBLE
 greedy_cache_hit: True
-image_file: C:\Users\user\Desktop\diploma\hybrid_random_sample_size_benchmark\images\hybrid_result_sample_3.png
+image_file: C:\Users\Администратор\Desktop\diploma\hybrid_random_sample_size_benchmark\images\hybrid_result_sample_3.png
 
 hybrid_stats_json
 {
@@ -66,7 +66,7 @@ hybrid_stats_json
   "random_sample_size_requested": 3,
   "random_sample_size": 3,
   "random_seed_requested": null,
-  "random_seed_used": 7687343948724746725,
+  "random_seed_used": 1267879843952642086,
   "best_model_iteration": 1,
   "greedy_objective_value": 71448371.05895315,
   "model_objective_value": null,
@@ -78,9 +78,9 @@ hybrid_stats_json
   "target_free_space_percent": 28.551628940946845,
   "require_improvement": true,
   "min_improvement_area": 9.999999999999999e-05,
-  "greedy_time_sec": 0.002750999992713332,
-  "model_time_sec": 7.564849899994442,
-  "total_time_sec": 7.623322200000985,
+  "greedy_time_sec": 0.0025099999911617488,
+  "model_time_sec": 3.8970417999953497,
+  "total_time_sec": 3.916470099997241,
   "model_status": "INFEASIBLE",
   "min_objective_fallback_used": false,
   "full_search_mode": false,
@@ -4664,7 +4664,7 @@ full_result_json
     "random_sample_size_requested": 3,
     "random_sample_size": 3,
     "random_seed_requested": null,
-    "random_seed_used": 7687343948724746725,
+    "random_seed_used": 1267879843952642086,
     "best_model_iteration": 1,
     "greedy_objective_value": 71448371.05895315,
     "model_objective_value": null,
@@ -4676,9 +4676,9 @@ full_result_json
     "target_free_space_percent": 28.551628940946845,
     "require_improvement": true,
     "min_improvement_area": 9.999999999999999e-05,
-    "greedy_time_sec": 0.002750999992713332,
-    "model_time_sec": 7.564849899994442,
-    "total_time_sec": 7.623322200000985,
+    "greedy_time_sec": 0.0025099999911617488,
+    "model_time_sec": 3.8970417999953497,
+    "total_time_sec": 3.916470099997241,
     "model_status": "INFEASIBLE",
     "min_objective_fallback_used": false,
     "full_search_mode": false,

@@ -1,14 +1,12 @@
 summary (model only, without greedy/data build)
-RANDOM_SAMPLE_SIZE=1 | model_time_sec=3.391594 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=7525784449442525868
-RANDOM_SAMPLE_SIZE=2 | model_time_sec=4.603476 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=2723882740576267551
-RANDOM_SAMPLE_SIZE=3 | model_time_sec=7.564850 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=7687343948724746725
-RANDOM_SAMPLE_SIZE=4 | model_time_sec=9.184590 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=5494141223952804238
-RANDOM_SAMPLE_SIZE=5 | model_time_sec=10.793898 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=3963016299140315087
-RANDOM_SAMPLE_SIZE=6 | model_time_sec=12.040266 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=6384570871387488979
-RANDOM_SAMPLE_SIZE=7 | model_time_sec=83.099510 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=8302238806573414030
+RANDOM_SAMPLE_SIZE=8 | model_time_sec=4546.801296 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=1985119147032838611
+RANDOM_SAMPLE_SIZE=9 | model_time_sec=4775.198591 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=5154818353355410636
+RANDOM_SAMPLE_SIZE=10 | model_time_sec=7215.219598 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=7846566717504388232
+RANDOM_SAMPLE_SIZE=11 | model_time_sec=7216.683949 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=614709503550147830
+RANDOM_SAMPLE_SIZE=12 | model_time_sec=7217.384806 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=6797438765205454754
 
 time_stats_model_only
-count: 7
-min_model_time_sec: 3.391594 (RANDOM_SAMPLE_SIZE=1)
-max_model_time_sec: 83.099510 (RANDOM_SAMPLE_SIZE=7)
-avg_model_time_sec: 18.668312
+count: 5
+min_model_time_sec: 4546.801296 (RANDOM_SAMPLE_SIZE=8)
+max_model_time_sec: 7217.384806 (RANDOM_SAMPLE_SIZE=12)
+avg_model_time_sec: 6194.257648
