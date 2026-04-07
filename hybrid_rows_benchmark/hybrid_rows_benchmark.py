@@ -3,6 +3,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -12,7 +13,9 @@ if str(SRC_DIR) not in sys.path:
 
 
 from core.data import Data
-from solvers.hybrid_solver import HybridSolver
+from solvers.hybrid_solver import HybridSolver as HybridSolverRandomSampling
+from solvers.hybrid_solver_vertical_largest import HybridSolver as HybridSolverLargestSampling
+from solvers.hybrid_solver_vertical_smallest import HybridSolver as HybridSolverSmallestSampling
 from utils.helpers import util_model
 from utils.hybrid_visualization import visualize_hybrid_result
 
@@ -59,8 +62,43 @@ GREEDY_RESULT_CACHE_PATH = None
 GREEDY_RESULT_CACHE_TTL_DAYS = None
 GREEDY_SHARED_RESULT_CACHE = {}
 
+# Algorithm parameters (same as in algorithm benchmark).
+# sampling strategy: random | smallest | largest
+# greedy order strategy: deterministic | random
+SAMPLING_STRATEGY = "random"
+GREEDY_ORDER_STRATEGY = "deterministic"
+GREEDY_RANDOM_SEED = None
+
 
 SHARED_NFP_CACHE = {}
+
+
+def normalize_sampling_strategy(value: str) -> str:
+    v = str(value).strip().lower()
+    if v in {"random", "default"}:
+        return "random"
+    if v in {"smallest", "smallest_area", "small"}:
+        return "smallest_area"
+    if v in {"largest", "largest_area", "biggest"}:
+        return "largest_area"
+    raise ValueError(f"Unsupported sampling strategy: {value}")
+
+
+def normalize_greedy_order_strategy(value: str) -> str:
+    v = str(value).strip().lower()
+    if v in {"deterministic", "default", "area_desc", "sorted"}:
+        return "deterministic"
+    if v in {"random", "shuffle", "random_order"}:
+        return "random"
+    raise ValueError(f"Unsupported greedy order strategy: {value}")
+
+
+def resolve_solver_class(sampling_strategy: str):
+    if sampling_strategy == "smallest_area":
+        return HybridSolverSmallestSampling
+    if sampling_strategy == "largest_area":
+        return HybridSolverLargestSampling
+    return HybridSolverRandomSampling
 
 
 def iter_s_values(start: int, step: int, end: int):
@@ -94,6 +132,8 @@ def build_summary_text(results: list[dict]) -> str:
             f" | model_status={row['model_status']}"
             f" | final_objective={row['final_objective']}"
             f" | random_seed_used={row['random_seed_used']}"
+            f" | sampling_strategy={row.get('sampling_strategy')}"
+            f" | greedy_order_strategy={row.get('greedy_order_strategy')}"
         )
 
     valid_rows = [r for r in results if r.get("model_time_sec") is not None]
@@ -115,6 +155,9 @@ def build_summary_text(results: list[dict]) -> str:
 def build_detailed_s_text(
     *,
     s_value: int,
+    sampling_strategy: str,
+    greedy_order_strategy: str,
+    greedy_random_seed_requested: Optional[int],
     elapsed: float,
     result: dict,
     image_file: Path,
@@ -155,6 +198,9 @@ def build_detailed_s_text(
     lines.append(f"random_seed_requested: {random_seed_requested}")
     lines.append(f"random_seed_used: {random_seed_used}")
     lines.append(f"random_sample_size: {RANDOM_SAMPLE_SIZE}")
+    lines.append(f"sampling_strategy: {sampling_strategy}")
+    lines.append(f"greedy_order_strategy: {greedy_order_strategy}")
+    lines.append(f"greedy_random_seed_requested: {greedy_random_seed_requested}")
     lines.append(f"min_unpacked_in_sample: {MIN_UNPACKED_IN_SAMPLE}")
     lines.append(f"greedy_enable_output: {GREEDY_ENABLE_OUTPUT}")
     lines.append(f"hybrid_enable_output: {HYBRID_ENABLE_OUTPUT}")
@@ -187,6 +233,9 @@ def build_detailed_s_text(
 def main() -> None:
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     TIMINGS_DIR.mkdir(parents=True, exist_ok=True)
+    sampling_strategy = normalize_sampling_strategy(SAMPLING_STRATEGY)
+    greedy_order_strategy = normalize_greedy_order_strategy(GREEDY_ORDER_STRATEGY)
+    solver_cls = resolve_solver_class(sampling_strategy)
 
     items = util_model.parse_items(str(DATA_FILE))
     if not items:
@@ -194,6 +243,10 @@ def main() -> None:
 
     print(f"Data file: {DATA_FILE.resolve()}")
     print(f"S loop: start={S_START}, step={S_STEP}, end={S_END}")
+    print(
+        "Algorithm params: "
+        f"sampling_strategy={sampling_strategy}, greedy_order_strategy={greedy_order_strategy}"
+    )
     print("Building Data once (as in test_hybrid_basic)...")
 
     data = Data(
@@ -210,7 +263,13 @@ def main() -> None:
         print(f"\n=== Running hybrid for S={s_value} ===")
         s_run_started = datetime.now().isoformat(timespec="seconds")
 
-        solver = HybridSolver(
+        greedy_seed_requested = (
+            None
+            if greedy_order_strategy != "random"
+            else (int(RANDOM_SEED) if RANDOM_SEED is not None else GREEDY_RANDOM_SEED)
+        )
+
+        solver = solver_cls(
             data,
             height=HEIGHT,
             width=WIDTH,
@@ -221,6 +280,8 @@ def main() -> None:
             greedy_result_cache_path=GREEDY_RESULT_CACHE_PATH,
             greedy_result_cache_ttl_days=GREEDY_RESULT_CACHE_TTL_DAYS,
             greedy_shared_result_cache=GREEDY_SHARED_RESULT_CACHE,
+            greedy_order_strategy=greedy_order_strategy,
+            greedy_random_seed=greedy_seed_requested,
         )
 
         solve_start = time.perf_counter()
@@ -238,6 +299,8 @@ def main() -> None:
             random_iterations=RANDOM_ITERATIONS,
             random_seed=RANDOM_SEED,
             random_sample_size=RANDOM_SAMPLE_SIZE,
+            greedy_order_strategy=greedy_order_strategy,
+            greedy_random_seed=greedy_seed_requested,
         )
         elapsed = time.perf_counter() - solve_start
         s_run_finished = datetime.now().isoformat(timespec="seconds")
@@ -260,6 +323,9 @@ def main() -> None:
         result_safe = result if isinstance(result, dict) else {"status": "UNKNOWN"}
         detailed_text = build_detailed_s_text(
             s_value=int(s_value),
+            sampling_strategy=sampling_strategy,
+            greedy_order_strategy=greedy_order_strategy,
+            greedy_random_seed_requested=greedy_seed_requested,
             elapsed=float(elapsed),
             result=result_safe,
             image_file=image_file,
@@ -281,6 +347,9 @@ def main() -> None:
             "greedy_cache_hit": hybrid_stats.get("greedy_cache_hit"),
             "random_seed_used": hybrid_stats.get("random_seed_used"),
             "min_unpacked_in_sample": hybrid_stats.get("min_unpacked_in_sample"),
+            "sampling_strategy": hybrid_stats.get("sampling_strategy"),
+            "greedy_order_strategy": hybrid_stats.get("greedy_order_strategy"),
+            "greedy_random_seed_used": hybrid_stats.get("greedy_random_seed_used"),
         }
         all_results.append(row)
 

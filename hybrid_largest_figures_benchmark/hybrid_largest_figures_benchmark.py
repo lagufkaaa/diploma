@@ -15,46 +15,46 @@ if str(SRC_DIR) not in sys.path:
 
 
 from core.data import Data
-from solvers.hybrid_solver import HybridSolver
+from solvers.hybrid_solver_vertical_largest import HybridSolver
 from utils.helpers import util_model
 from utils.hybrid_visualization import visualize_hybrid_result
 
 
 DATA_DIR = ROOT_DIR / "data_car_mats"
-OUTPUT_DIR = ROOT_DIR / "hybrid_random_algorithm_benchmark"
+OUTPUT_DIR = ROOT_DIR / "hybrid_largest_figures_benchmark"
 RESULTS_DIR = OUTPUT_DIR / "results"
 RUNS_DIR = RESULTS_DIR / "runs"
 IMAGES_DIR = RESULTS_DIR / "images"
 
 
 # ============================================================
-# Benchmark configuration (random hybrid solver)
+# Benchmark configuration (hybrid solver with largest figures)
 # ============================================================
 DATA_FILE = DATA_DIR / "car_mats_2.txt"
 R = 4
-S = 5
+S = 7
 HEIGHT = 10000.0
 WIDTH = 10000.0
 SOLVER_NAME = "SCIP"
 
 NUM_RUNS = 20
-BASE_RANDOM_SEED: Optional[int] = 1000
+BASE_RANDOM_SEED: Optional[int] = None
 
 UNPACK_LAST_N = 6
 CROP_HEIGHT_RATIO = 1.0 / 3.0
 FREE_SPACE_IMPROVEMENT = True
 SOLVER_GAP = 1.0
-MODEL_TIME_LIMIT_SEC: Optional[float] = 120.0
+MODEL_TIME_LIMIT_SEC: Optional[float] = 360.0
 MODEL_NUM_THREADS: Optional[int] = None
 STOP_AFTER_FIRST_SOLUTION = False
-MODEL_ENABLE_OUTPUT = False
+MODEL_ENABLE_OUTPUT = True
 
 RANDOM_ITERATIONS = 10
-RANDOM_SAMPLE_SIZE = 10
-MIN_UNPACKED_IN_SAMPLE = 2
+RANDOM_SAMPLE_SIZE = 8
+MIN_UNPACKED_IN_SAMPLE = UNPACK_LAST_N // 2
 
-GREEDY_ENABLE_OUTPUT = False
-HYBRID_ENABLE_OUTPUT = False
+GREEDY_ENABLE_OUTPUT = True
+HYBRID_ENABLE_OUTPUT = True
 SAVE_IMAGES = True
 
 GREEDY_USE_RESULT_CACHE = True
@@ -120,7 +120,7 @@ def build_summary_text(run_rows: List[Dict[str, Any]], iteration_rows: List[Dict
         cv_percent = 100.0 * float(final_std) / float(final_mean)
 
     lines: List[str] = []
-    lines.append("random hybrid benchmark summary")
+    lines.append("largest-figures hybrid benchmark summary")
     lines.append(f"created_at: {datetime.now().isoformat(timespec='seconds')}")
     lines.append("")
     lines.append("quality_vs_greedy")
@@ -305,6 +305,7 @@ def main() -> None:
             "unpack_last_n": stats.get("unpack_last_n"),
             "unpack_ids_count": stats.get("unpack_ids_count"),
             "sampled_model_item_ids_count": stats.get("sampled_model_item_ids_count"),
+            "sampling_strategy": stats.get("sampling_strategy"),
             "image_file": str(image_file.resolve()) if image_file is not None else None,
         }
         run_rows.append(run_row)
@@ -387,6 +388,7 @@ def main() -> None:
             "unpack_last_n",
             "unpack_ids_count",
             "sampled_model_item_ids_count",
+            "sampling_strategy",
             "image_file",
         ]
         iteration_fieldnames = [
@@ -439,6 +441,7 @@ def main() -> None:
         "unpack_last_n",
         "unpack_ids_count",
         "sampled_model_item_ids_count",
+        "sampling_strategy",
         "image_file",
     ]
     iteration_fieldnames = [

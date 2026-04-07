@@ -10,6 +10,7 @@ from shapely.geometry import GeometryCollection, LineString, MultiLineString, Mu
 
 from core.data import Data, Item
 from solvers.greedy_solver import GreedySolver
+from solvers.greedy_solver_random import GreedySolverRandom
 from solvers.hybrid_hard_timeout import solve_hybrid_problem_with_hard_timeout
 from solvers.model_hybrid import Problem as HybridProblem
 
@@ -56,6 +57,8 @@ class HybridSolver:
         greedy_result_cache_path: Optional[str] = None,
         greedy_result_cache_ttl_days: Optional[float] = None,
         greedy_shared_result_cache: Optional[MutableMapping[str, bytes]] = None,
+        greedy_order_strategy: str = "deterministic",
+        greedy_random_seed: Optional[int] = None,
         hybrid_enable_output: bool = True,
         hybrid_log_interval_sec: float = 2.0,
     ):
@@ -71,6 +74,12 @@ class HybridSolver:
         self.greedy_result_cache_path = greedy_result_cache_path
         self.greedy_result_cache_ttl_days = greedy_result_cache_ttl_days
         self.greedy_shared_result_cache = greedy_shared_result_cache
+        self.greedy_order_strategy = self._normalize_greedy_order_strategy(
+            greedy_order_strategy
+        )
+        self.greedy_random_seed = (
+            None if greedy_random_seed is None else int(greedy_random_seed)
+        )
         self.hybrid_enable_output = bool(hybrid_enable_output)
         self.hybrid_log_interval_sec = max(0.2, float(hybrid_log_interval_sec))
 
@@ -100,6 +109,8 @@ class HybridSolver:
         random_sample_size: Optional[int] = None,
         greedy_enable_output: Optional[bool] = None,
         greedy_log_interval_sec: Optional[float] = None,
+        greedy_order_strategy: Optional[str] = None,
+        greedy_random_seed: Optional[int] = None,
         hybrid_enable_output: Optional[bool] = None,
         hybrid_log_interval_sec: Optional[float] = None,
     ):
@@ -154,24 +165,52 @@ class HybridSolver:
             if greedy_log_interval_sec is None
             else max(0.2, float(greedy_log_interval_sec))
         )
-        greedy = GreedySolver(
-            self.data,
+        greedy_order_strategy_effective = (
+            self.greedy_order_strategy
+            if greedy_order_strategy is None
+            else self._normalize_greedy_order_strategy(greedy_order_strategy)
+        )
+        greedy_random_seed_requested = (
+            self.greedy_random_seed
+            if greedy_random_seed is None
+            else int(greedy_random_seed)
+        )
+        if (
+            greedy_order_strategy_effective == "random"
+            and greedy_random_seed_requested is None
+            and random_seed is not None
+        ):
+            greedy_random_seed_requested = int(random_seed)
+
+        greedy_common_kwargs = dict(
+            data=self.data,
             height=self.height,
             width=self.width,
             S=self.S,
             eps_area=self.greedy_eps_area,
             enable_progress_log=greedy_progress_on,
             log_interval_sec=greedy_log_interval,
-            log_prefix="[hybrid-greedy]",
             use_result_cache=self.greedy_use_result_cache,
             result_cache_path=self.greedy_result_cache_path,
             result_cache_ttl_days=self.greedy_result_cache_ttl_days,
             shared_result_cache=self.greedy_shared_result_cache,
         )
+        if greedy_order_strategy_effective == "random":
+            greedy = GreedySolverRandom(
+                **greedy_common_kwargs,
+                log_prefix="[hybrid-greedy-random]",
+                random_seed=greedy_random_seed_requested,
+            )
+        else:
+            greedy = GreedySolver(
+                **greedy_common_kwargs,
+                log_prefix="[hybrid-greedy]",
+            )
         greedy_start = time.perf_counter()
         greedy_results = greedy.solve()
         greedy_time = time.perf_counter() - greedy_start
         greedy_cache_hit = bool(getattr(greedy, "last_result_cache_hit", False))
+        greedy_random_seed_used = getattr(greedy, "last_random_seed_used", None)
         _hybrid_log(f"greedy finished in {greedy_time:.2f}s", force=True)
 
         if greedy_results.get("status") != "OPTIMAL":
@@ -191,6 +230,10 @@ class HybridSolver:
                 },
                 "hybrid_stats": {
                     "greedy_cache_hit": greedy_cache_hit,
+                    "greedy_order_strategy": greedy_order_strategy_effective,
+                    "greedy_random_seed_requested": greedy_random_seed_requested,
+                    "greedy_random_seed_used": greedy_random_seed_used,
+                    "sampling_strategy": "random",
                     "greedy_time_sec": greedy_time,
                     "model_time_sec": 0.0,
                     "total_time_sec": time.perf_counter() - t0,
@@ -726,6 +769,10 @@ class HybridSolver:
                 "visualization": visualization_payload,
                 "hybrid_stats": {
                     "greedy_cache_hit": greedy_cache_hit,
+                    "greedy_order_strategy": greedy_order_strategy_effective,
+                    "greedy_random_seed_requested": greedy_random_seed_requested,
+                    "greedy_random_seed_used": greedy_random_seed_used,
+                    "sampling_strategy": "random",
                     "packed_by_greedy": len(packed_records),
                     "unpack_last_n": int(max(0, unpack_last_n)),
                     "use_top_crop": bool(use_top_crop),
@@ -784,6 +831,10 @@ class HybridSolver:
             "visualization": visualization_payload,
             "hybrid_stats": {
                 "greedy_cache_hit": greedy_cache_hit,
+                "greedy_order_strategy": greedy_order_strategy_effective,
+                "greedy_random_seed_requested": greedy_random_seed_requested,
+                "greedy_random_seed_used": greedy_random_seed_used,
+                "sampling_strategy": "random",
                 "packed_by_greedy": len(packed_records),
                 "unpack_last_n": int(max(0, unpack_last_n)),
                 "use_top_crop": bool(use_top_crop),
@@ -825,6 +876,18 @@ class HybridSolver:
                 "iteration_stats": list(iteration_stats),
             },
         }
+
+    @staticmethod
+    def _normalize_greedy_order_strategy(strategy: Optional[str]) -> str:
+        value = "deterministic" if strategy is None else str(strategy).strip().lower()
+        if value in {"deterministic", "default", "area_desc", "sorted"}:
+            return "deterministic"
+        if value in {"random", "shuffle", "random_order"}:
+            return "random"
+        raise ValueError(
+            f"Unsupported greedy_order_strategy='{strategy}'. "
+            "Allowed: deterministic, random."
+        )
 
     def _collect_packed_records(self, greedy_results: dict) -> List[_PackedRecord]:
         p_vals = greedy_results.get("p", [])

@@ -35,11 +35,11 @@ class _GridAnchorSpec:
 
 class HybridSolver:
     """
-    Hybrid strategy (vertical crop only, smallest-sample version):
+    Hybrid strategy (vertical crop only, largest-sample version):
     1. Build an initial solution with greedy.
     2. Unpack the last N greedy-packed items.
     3. Build a pool: unpacked-from-greedy + greedy-unpacked.
-    4. Pick SAMPLE_SIZE smallest items from that pool.
+    4. Pick SAMPLE_SIZE largest items from that pool.
     5. Reoptimize the partial solution in top-cropped container.
     """
 
@@ -234,7 +234,7 @@ class HybridSolver:
                     "greedy_order_strategy": greedy_order_strategy_effective,
                     "greedy_random_seed_requested": greedy_random_seed_requested,
                     "greedy_random_seed_used": greedy_random_seed_used,
-                    "sampling_strategy": "smallest_area",
+                    "sampling_strategy": "largest_area",
                     "greedy_time_sec": greedy_time,
                     "model_time_sec": 0.0,
                     "total_time_sec": time.perf_counter() - t0,
@@ -343,14 +343,14 @@ class HybridSolver:
             random_seed_used = None
             rng = None
         ordered_unpack_ids = [item_id for item_id in ordered_pool_ids if item_id in unpack_ids]
-        smallest_pool_ids = self._select_smallest_pool_item_ids(
+        largest_pool_ids = self._select_largest_pool_item_ids(
             ordered_pool_ids=ordered_pool_ids,
             sample_size=sample_size,
         )
         effective_sample_size = min(len(ordered_pool_ids), sample_size)
         _hybrid_log(
             (
-                "sampling config: strategy=smallest_area, "
+                "sampling config: strategy=largest_area, "
                 f"sample_size={sample_size}, selected={effective_sample_size}, "
                 f"iterations={random_iterations}, seed_used={random_seed_used}, "
                 f"require_improvement={require_improvement}, "
@@ -401,10 +401,10 @@ class HybridSolver:
 
                 sampled_unpack_set = set(sampled_unpack_ids)
                 remaining_slots = k - len(sampled_unpack_ids)
-                smallest_remaining_ids = [
-                    item_id for item_id in smallest_pool_ids if item_id not in sampled_unpack_set
+                largest_remaining_ids = [
+                    item_id for item_id in largest_pool_ids if item_id not in sampled_unpack_set
                 ]
-                sampled_remaining_ids = smallest_remaining_ids[:remaining_slots]
+                sampled_remaining_ids = largest_remaining_ids[:remaining_slots]
                 sampled_ids = list(sampled_unpack_ids) + list(sampled_remaining_ids)
                 sampled_item_ids = set(sampled_ids)
 
@@ -809,7 +809,7 @@ class HybridSolver:
                     "random_sample_size": int(min(len(ordered_pool_ids), sample_size)),
                     "random_seed_requested": random_seed_requested,
                     "random_seed_used": random_seed_used,
-                    "sampling_strategy": "smallest_area",
+                    "sampling_strategy": "largest_area",
                     "best_model_iteration": int(best_model_iteration),
                     "greedy_objective_value": greedy_obj,
                     "model_objective_value": float(model_obj) if model_obj is not None else None,
@@ -871,7 +871,7 @@ class HybridSolver:
                 "random_sample_size": int(min(len(ordered_pool_ids), sample_size)),
                 "random_seed_requested": random_seed_requested,
                 "random_seed_used": random_seed_used,
-                "sampling_strategy": "smallest_area",
+                "sampling_strategy": "largest_area",
                 "best_model_iteration": int(best_model_iteration),
                 "greedy_objective_value": greedy_obj,
                 "final_objective_value": final_obj,
@@ -958,7 +958,7 @@ class HybridSolver:
 
         return set(candidate_ids)
 
-    def _select_smallest_pool_item_ids(
+    def _select_largest_pool_item_ids(
         self,
         *,
         ordered_pool_ids: List[object],
@@ -968,18 +968,18 @@ class HybridSolver:
         if sample_size <= 0 or not ordered_pool_ids:
             return []
 
-        min_area_by_id: Dict[object, float] = {}
+        max_area_by_id: Dict[object, float] = {}
         for it in self.data.items:
             area = float(it.area)
-            prev = min_area_by_id.get(it.id)
-            if prev is None or area < prev:
-                min_area_by_id[it.id] = area
+            prev = max_area_by_id.get(it.id)
+            if prev is None or area > prev:
+                max_area_by_id[it.id] = area
 
         rank_by_id = {item_id: idx for idx, item_id in enumerate(ordered_pool_ids)}
         sorted_ids = sorted(
             ordered_pool_ids,
             key=lambda item_id: (
-                min_area_by_id.get(item_id, float("inf")),
+                -max_area_by_id.get(item_id, float("-inf")),
                 rank_by_id.get(item_id, 10**9),
             ),
         )
