@@ -1,5 +1,6 @@
 import csv
 import json
+import re
 import sys
 import time
 from collections import defaultdict
@@ -25,9 +26,6 @@ from utils.hybrid_visualization import visualize_hybrid_result
 
 DATA_DIR = ROOT_DIR / "data_car_mats"
 OUTPUT_DIR = ROOT_DIR / "hybrid_algorithms_benchmark"
-RESULTS_DIR = OUTPUT_DIR / "results"
-RUNS_DIR = RESULTS_DIR / "runs"
-IMAGES_DIR = RESULTS_DIR / "images"
 
 
 # ============================================================
@@ -35,29 +33,29 @@ IMAGES_DIR = RESULTS_DIR / "images"
 # ============================================================
 DATA_FILE = DATA_DIR / "car_mats_2.txt"
 R = 4
-S = 5
-HEIGHT = 10000.0
-WIDTH = 10000.0
+S = 10
+HEIGHT = 6000.0
+WIDTH = 6000.0
 SOLVER_NAME = "SCIP"
 
 NUM_RUNS = 20
-BASE_RANDOM_SEED: Optional[int] = 1000
+BASE_RANDOM_SEED: Optional[int] = None
 
-UNPACK_LAST_N = 6
+UNPACK_LAST_N = 4
 CROP_HEIGHT_RATIO = 1.0 / 3.0
 FREE_SPACE_IMPROVEMENT = True
 SOLVER_GAP = 1.0
-MODEL_TIME_LIMIT_SEC: Optional[float] = 120.0
+MODEL_TIME_LIMIT_SEC: Optional[float] = 3600.0
 MODEL_NUM_THREADS: Optional[int] = None
 STOP_AFTER_FIRST_SOLUTION = False
-MODEL_ENABLE_OUTPUT = False
+MODEL_ENABLE_OUTPUT = True
 
-RANDOM_ITERATIONS = 10
-RANDOM_SAMPLE_SIZE = 10
-MIN_UNPACKED_IN_SAMPLE = 2
+RANDOM_ITERATIONS = 5
+RANDOM_SAMPLE_SIZE = 7
+MIN_UNPACKED_IN_SAMPLE = 0
 
-GREEDY_ENABLE_OUTPUT = False
-HYBRID_ENABLE_OUTPUT = False
+GREEDY_ENABLE_OUTPUT = True
+HYBRID_ENABLE_OUTPUT = True
 SAVE_IMAGES = True
 
 GREEDY_USE_RESULT_CACHE = True
@@ -68,13 +66,40 @@ GREEDY_SHARED_RESULT_CACHE = {}
 # Selected algorithm parameters:
 # - greedy order strategy: deterministic | random
 # - model sampling strategy: random | smallest | largest
-GREEDY_ORDER_STRATEGY = "deterministic"
-SAMPLING_STRATEGY = "random"
+GREEDY_ORDER_STRATEGY = "random"
+SAMPLING_STRATEGY = "largest"
+
+# Run-output settings.
+# For parallel runs set different RUN_TAG values manually OR keep AUTO_RUN_TAG=True.
+RUN_TAG: Optional[str] = None
+AUTO_RUN_TAG = True
 
 IMPROVEMENT_EPS = 1e-9
 
 
 SHARED_NFP_CACHE = {}
+
+
+def sanitize_run_tag(raw_tag: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(raw_tag).strip())
+    cleaned = cleaned.strip("._-")
+    if not cleaned:
+        return "run"
+    return cleaned
+
+
+def resolve_effective_run_tag() -> str:
+    if RUN_TAG is not None:
+        return sanitize_run_tag(RUN_TAG)
+    if AUTO_RUN_TAG:
+        return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    return "default"
+
+
+EFFECTIVE_RUN_TAG = resolve_effective_run_tag()
+RESULTS_DIR = OUTPUT_DIR / "results" / EFFECTIVE_RUN_TAG
+RUNS_DIR = RESULTS_DIR / "runs"
+IMAGES_DIR = RESULTS_DIR / "images"
 
 
 RUN_FIELDNAMES = [
@@ -354,6 +379,10 @@ def main() -> None:
         "greedy_result_cache_ttl_days": GREEDY_RESULT_CACHE_TTL_DAYS,
         "greedy_order_strategy": GREEDY_ORDER_STRATEGY,
         "sampling_strategy": SAMPLING_STRATEGY,
+        "run_tag_requested": RUN_TAG,
+        "auto_run_tag": bool(AUTO_RUN_TAG),
+        "run_tag_effective": EFFECTIVE_RUN_TAG,
+        "results_dir": str(RESULTS_DIR.resolve()),
         "algorithm_variants": algorithm_variants,
     }
     (RESULTS_DIR / "config.json").write_text(
@@ -370,6 +399,8 @@ def main() -> None:
         "Algorithm selection: "
         f"greedy_order_strategy={GREEDY_ORDER_STRATEGY}, sampling_strategy={SAMPLING_STRATEGY}"
     )
+    print(f"Run tag: requested={RUN_TAG}, effective={EFFECTIVE_RUN_TAG}")
+    print(f"Results dir: {RESULTS_DIR.resolve()}")
     print(f"Algorithm variants: {len(algorithm_variants)}")
     print(f"Runs per algorithm: {NUM_RUNS}, random_iterations per run: {RANDOM_ITERATIONS}")
 

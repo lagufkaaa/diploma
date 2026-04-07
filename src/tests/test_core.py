@@ -320,7 +320,7 @@ def test_model_basic():
 
 
 def test_greedy_basic():
-    file_path = DATA_DIR / 'test.txt'
+    file_path = DATA_DIR / 'car_mats_2.txt'
     items = util_model.parse_items(str(file_path))
     assert len(items) > 0, "no items parsed from test file"
 
@@ -330,10 +330,10 @@ def test_greedy_basic():
 
     # items = mdl_items[:4] 
 
-    R = 1
-    S = 6
-    height = 500.0
-    width = 500.0
+    R = 4
+    S = 10
+    height = 6000.0
+    width = 6000.0
 
     total_start = time.time()
 
@@ -473,14 +473,14 @@ def test_single_square_fits():
 # 
 
 def test_hybrid_basic():
-    file_path = DATA_DIR / 'test.txt'
+    file_path = DATA_DIR / 'car_mats_2.txt'
     items = util_model.parse_items(str(file_path))
     assert len(items) > 0, "no items parsed from test file"
     
     R = 4
     S = 10
-    height = 500.0
-    width = 500.0
+    height = 6000.0
+    width = 6000.0
 
     total_start = time.time()
 
@@ -501,7 +501,7 @@ def test_hybrid_basic():
     random_seed = None
     random_sample_size = 10
 
-    unpack_last_n = 5
+    unpack_last_n = 3
 
     solve_start = time.time()
     result = solver.solve(

@@ -1,3 +1,0 @@
-run_idx,run_seed_requested,run_seed_used,iteration,selected_as_best,iteration_status,iteration_objective,iteration_minus_greedy,iteration_improved_vs_greedy,iter_time_sec,model_item_ids_count,sampled_model_item_ids_count,fixed_records_count,fixed_blockers_count,local_min_objective,local_max_objective,model_data_empty
-1,1,1,1,True,INFEASIBLE,,,False,1.172902599995723,6,6,18,9,90000.00000100001,93300.0,False
-1,1,1,2,False,INFEASIBLE,,,False,1.2841243000002578,6,6,18,9,90000.00000100001,111100.0,False
