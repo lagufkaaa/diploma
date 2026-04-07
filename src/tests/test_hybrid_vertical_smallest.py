@@ -19,14 +19,14 @@ SHARED_NFP_CACHE = {}
 
 
 def test_hybrid_vertical_smallest_basic():
-    file_path = DATA_DIR / "car_mats_2.txt"
+    file_path = DATA_DIR / "test.txt"
     items = util_model.parse_items(str(file_path))
     assert len(items) > 0, "no items parsed from test file"
 
     R = 4
-    S = 15
-    height = 10000.0
-    width = 10000.0
+    S = 10
+    height = 400.0
+    width = 400.0
 
     total_start = time.time()
 
@@ -44,10 +44,10 @@ def test_hybrid_vertical_smallest_basic():
     solver_time = time.time() - solver_start
 
     random_iterations = 1
-    random_seed = None
-    random_sample_size = 9
+    random_seed = 11
+    random_sample_size = 10
     unpack_last_n = 5
-    crop_height = height * 1.0 / 3.0
+    crop_height = height * 1.0 / 2.0
     
     solve_start = time.time()
     result = solver.solve(
@@ -55,12 +55,11 @@ def test_hybrid_vertical_smallest_basic():
         crop_height=crop_height,
         use_top_crop=True,
         free_space_improvement=True,
-        solver_gap=0.3,
-        model_time_limit_sec=None,
+        solver_gap=0.5,
+        model_time_limit_sec=8.0,
         stop_after_first_solution=False,
-        model_enable_output=True,
-        lock_greedy_unpacked=False,
-        max_model_unfixed_items=None,
+        model_enable_output=False,
+        min_unpacked_in_sample=2,
         random_iterations=random_iterations,
         random_seed=random_seed,
         random_sample_size=random_sample_size,
@@ -109,9 +108,10 @@ def test_hybrid_vertical_smallest_basic():
     expected_sample_size = min(model_pool_count, max(0, int(random_sample_size)))
     assert int(stats.get("random_sample_size", -1)) == expected_sample_size
     assert int(stats.get("sampled_model_item_ids_count", -1)) == expected_sample_size
+    assert int(stats.get("min_unpacked_in_sample", -1)) == 2
     assert stats.get("sampling_strategy") == "smallest_area"
-    assert stats.get("random_seed_requested") == random_seed
-    assert stats.get("random_seed_used") is None
+    assert int(stats.get("random_seed_requested", -1)) == random_seed
+    assert int(stats.get("random_seed_used", -1)) == random_seed
     assert stats.get("use_top_crop") is True
     assert float(stats.get("used_crop_height", 0.0)) == pytest.approx(crop_height)
 

@@ -1,9 +1,9 @@
 detailed report for RANDOM_SAMPLE_SIZE=6
-run_started: 2026-04-05T11:04:19
-run_finished: 2026-04-05T11:04:27
+run_started: 2026-04-07T10:03:31
+run_finished: 2026-04-07T10:03:47
 
 input_data
-data_file: C:\Users\Администратор\Desktop\diploma\data_car_mats\car_mats_2.txt
+data_file: C:\Users\user\Desktop\diploma\data_car_mats\car_mats_2.txt
 R: 4
 height: 10000.0
 width: 10000.0
@@ -21,12 +21,11 @@ model_time_limit_sec: 7200
 model_num_threads: None
 stop_after_first_solution: False
 model_enable_output: True
-lock_greedy_unpacked: False
-max_model_unfixed_items: None
 random_iterations: 1
 random_seed_requested: None
-random_seed_used: 4790839026233715792
+random_seed_used: 6401842582567970949
 random_sample_size: 6
+min_unpacked_in_sample: 3
 greedy_enable_output: True
 hybrid_enable_output: True
 greedy_use_result_cache: True
@@ -34,13 +33,13 @@ greedy_result_cache_path: None
 greedy_result_cache_ttl_days: None
 
 run_result
-time_sec: 7.277746
+time_sec: 15.669124
 status: NOT_PROVEN
 selected_solution: greedy
 final_objective: 71448371.05895315
 model_status: INFEASIBLE
 greedy_cache_hit: True
-image_file: C:\Users\Администратор\Desktop\diploma\hybrid_random_sample_size_benchmark\images\hybrid_result_sample_6.png
+image_file: C:\Users\user\Desktop\diploma\hybrid_random_sample_size_benchmark\images\hybrid_result_sample_6.png
 
 hybrid_stats_json
 {
@@ -56,17 +55,17 @@ hybrid_stats_json
   "model_item_ids_count": 6,
   "sampled_model_item_ids_count": 6,
   "window_forced_model_items_count": 0,
-  "selected_packed_items_for_model": 1,
-  "selected_unpacked_items_for_model": 5,
+  "selected_packed_items_for_model": 4,
+  "selected_unpacked_items_for_model": 2,
   "restricted_items_in_window": 6,
   "fixed_items_in_model": 19,
-  "forced_unpacked_ids": 25,
   "random_iterations_requested": 1,
   "random_iterations_executed": 1,
+  "min_unpacked_in_sample": 3,
   "random_sample_size_requested": 6,
   "random_sample_size": 6,
   "random_seed_requested": null,
-  "random_seed_used": 4790839026233715792,
+  "random_seed_used": 6401842582567970949,
   "best_model_iteration": 1,
   "greedy_objective_value": 71448371.05895315,
   "model_objective_value": null,
@@ -78,9 +77,9 @@ hybrid_stats_json
   "target_free_space_percent": 28.551628940946845,
   "require_improvement": true,
   "min_improvement_area": 9.999999999999999e-05,
-  "greedy_time_sec": 0.005339099996490404,
-  "model_time_sec": 7.249366500007454,
-  "total_time_sec": 7.277526999998372,
+  "greedy_time_sec": 0.0034291000047232956,
+  "model_time_sec": 15.6158288000006,
+  "total_time_sec": 15.66897489999974,
   "model_status": "INFEASIBLE",
   "min_objective_fallback_used": false,
   "full_search_mode": false,
@@ -4654,17 +4653,17 @@ full_result_json
     "model_item_ids_count": 6,
     "sampled_model_item_ids_count": 6,
     "window_forced_model_items_count": 0,
-    "selected_packed_items_for_model": 1,
-    "selected_unpacked_items_for_model": 5,
+    "selected_packed_items_for_model": 4,
+    "selected_unpacked_items_for_model": 2,
     "restricted_items_in_window": 6,
     "fixed_items_in_model": 19,
-    "forced_unpacked_ids": 25,
     "random_iterations_requested": 1,
     "random_iterations_executed": 1,
+    "min_unpacked_in_sample": 3,
     "random_sample_size_requested": 6,
     "random_sample_size": 6,
     "random_seed_requested": null,
-    "random_seed_used": 4790839026233715792,
+    "random_seed_used": 6401842582567970949,
     "best_model_iteration": 1,
     "greedy_objective_value": 71448371.05895315,
     "model_objective_value": null,
@@ -4676,9 +4675,9 @@ full_result_json
     "target_free_space_percent": 28.551628940946845,
     "require_improvement": true,
     "min_improvement_area": 9.999999999999999e-05,
-    "greedy_time_sec": 0.005339099996490404,
-    "model_time_sec": 7.249366500007454,
-    "total_time_sec": 7.277526999998372,
+    "greedy_time_sec": 0.0034291000047232956,
+    "model_time_sec": 15.6158288000006,
+    "total_time_sec": 15.66897489999974,
     "model_status": "INFEASIBLE",
     "min_objective_fallback_used": false,
     "full_search_mode": false,

@@ -1,15 +1,17 @@
 summary (model only, without greedy/data build)
-S=10 | model_time_sec=323.528726 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=3349162921347634385
-S=11 | model_time_sec=1025.623650 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=8843133893973585235
-S=12 | model_time_sec=1831.728193 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=8891310312893480306
-S=13 | model_time_sec=6713.210244 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=159392470312112640
-S=14 | model_time_sec=217.724735 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=2883349317904494153
-S=15 | model_time_sec=5704.675044 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=2803223386936609991
-S=16 | model_time_sec=7292.880744 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=5168785861960536690
-S=17 | model_time_sec=7299.151052 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=3878015517030104208
+S=10 | model_time_sec=1594.664202 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=7966771729163611807
+S=11 | model_time_sec=941.150996 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=200729080712664884
+S=12 | model_time_sec=602.004117 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=3006641050411307594
+S=13 | model_time_sec=2069.345992 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=7464433025897425600
+S=14 | model_time_sec=870.135568 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=8874517543930856960
+S=15 | model_time_sec=7252.996215 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=4957702706849687379
+S=16 | model_time_sec=7259.607797 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=7485139245513001203
+S=17 | model_time_sec=7277.502798 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=7791219655141956795
+S=18 | model_time_sec=7269.644930 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=8974035555639544817
+S=19 | model_time_sec=7281.560953 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=652710271339692577
 
 time_stats_model_only
-count: 8
-min_model_time_sec: 217.724735 (S=14)
-max_model_time_sec: 7299.151052 (S=17)
-avg_model_time_sec: 3801.065298
+count: 10
+min_model_time_sec: 602.004117 (S=12)
+max_model_time_sec: 7281.560953 (S=19)
+avg_model_time_sec: 4241.861357

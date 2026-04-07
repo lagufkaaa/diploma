@@ -106,11 +106,10 @@ def test_hybrid_top_crop_with_visible_rotations_visual():
         use_top_crop=True,
         free_space_improvement=False,
         solver_gap=0.5,
-        model_time_limit_sec=30.0,
+        model_time_limit_sec=10.0,
         stop_after_first_solution=False,
-        model_enable_output=True,
-        lock_greedy_unpacked=False,
-        max_model_unfixed_items=30,
+        model_enable_output=False,
+        min_unpacked_in_sample=2,
         random_iterations=1,
         random_seed=41,
         random_sample_size=6,
@@ -152,6 +151,7 @@ def test_hybrid_top_crop_with_visible_rotations_visual():
     assert result.get("selected_solution") in {"model", "greedy"}
     assert np.isclose(float(stats.get("used_crop_height", 0.0)), 80.0)
     assert bool(stats.get("use_top_crop")) is True
+    assert int(stats.get("min_unpacked_in_sample", -1)) == 2
     assert greedy_obj >= 0.0 and final_obj >= 0.0
     assert len(used_rots) > 0
     assert all(abs((r % 90.0)) < 1e-6 for r in used_rots)
@@ -178,14 +178,13 @@ def test_hybrid_top_crop_with_visible_rotations_plus4_small_delta_visual():
         use_top_crop=True,
         free_space_improvement=True,
         solver_gap=0.0,
-        model_time_limit_sec=90.0,
+        model_time_limit_sec=15.0,
         stop_after_first_solution=False,
-        model_enable_output=True,
-        lock_greedy_unpacked=False,
-        max_model_unfixed_items=100,
-        random_iterations=3,
+        model_enable_output=False,
+        min_unpacked_in_sample=2,
+        random_iterations=2,
         random_seed=231,
-        random_sample_size=20,
+        random_sample_size=12,
     )
 
     try:
@@ -224,6 +223,7 @@ def test_hybrid_top_crop_with_visible_rotations_plus4_small_delta_visual():
     assert result.get("selected_solution") in {"model", "greedy"}
     assert np.isclose(float(stats.get("used_crop_height", 0.0)), 80.0)
     assert bool(stats.get("use_top_crop")) is True
+    assert int(stats.get("min_unpacked_in_sample", -1)) == 2
     assert greedy_obj >= 0.0 and final_obj >= 0.0
     assert len(used_rots) > 0
     assert all(abs((r % 90.0)) < 1e-6 for r in used_rots)

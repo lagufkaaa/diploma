@@ -46,11 +46,10 @@ MODEL_TIME_LIMIT_SEC = 7200
 MODEL_NUM_THREADS = None
 STOP_AFTER_FIRST_SOLUTION = False
 MODEL_ENABLE_OUTPUT = True
-LOCK_GREEDY_UNPACKED = False
-MAX_MODEL_UNFIXED_ITEMS = None
 RANDOM_ITERATIONS = 1
 RANDOM_SEED = None
 RANDOM_SAMPLE_SIZE = 7
+MIN_UNPACKED_IN_SAMPLE = 2
 GREEDY_ENABLE_OUTPUT = True
 HYBRID_ENABLE_OUTPUT = True
 
@@ -152,12 +151,11 @@ def build_detailed_s_text(
     lines.append(f"model_num_threads: {MODEL_NUM_THREADS}")
     lines.append(f"stop_after_first_solution: {STOP_AFTER_FIRST_SOLUTION}")
     lines.append(f"model_enable_output: {MODEL_ENABLE_OUTPUT}")
-    lines.append(f"lock_greedy_unpacked: {LOCK_GREEDY_UNPACKED}")
-    lines.append(f"max_model_unfixed_items: {MAX_MODEL_UNFIXED_ITEMS}")
     lines.append(f"random_iterations: {RANDOM_ITERATIONS}")
     lines.append(f"random_seed_requested: {random_seed_requested}")
     lines.append(f"random_seed_used: {random_seed_used}")
     lines.append(f"random_sample_size: {RANDOM_SAMPLE_SIZE}")
+    lines.append(f"min_unpacked_in_sample: {MIN_UNPACKED_IN_SAMPLE}")
     lines.append(f"greedy_enable_output: {GREEDY_ENABLE_OUTPUT}")
     lines.append(f"hybrid_enable_output: {HYBRID_ENABLE_OUTPUT}")
     lines.append(f"greedy_use_result_cache: {GREEDY_USE_RESULT_CACHE}")
@@ -236,8 +234,7 @@ def main() -> None:
             model_num_threads=MODEL_NUM_THREADS,
             stop_after_first_solution=STOP_AFTER_FIRST_SOLUTION,
             model_enable_output=MODEL_ENABLE_OUTPUT,
-            lock_greedy_unpacked=LOCK_GREEDY_UNPACKED,
-            max_model_unfixed_items=MAX_MODEL_UNFIXED_ITEMS,
+            min_unpacked_in_sample=MIN_UNPACKED_IN_SAMPLE,
             random_iterations=RANDOM_ITERATIONS,
             random_seed=RANDOM_SEED,
             random_sample_size=RANDOM_SAMPLE_SIZE,
@@ -283,6 +280,7 @@ def main() -> None:
             "model_status": hybrid_stats.get("model_status"),
             "greedy_cache_hit": hybrid_stats.get("greedy_cache_hit"),
             "random_seed_used": hybrid_stats.get("random_seed_used"),
+            "min_unpacked_in_sample": hybrid_stats.get("min_unpacked_in_sample"),
         }
         all_results.append(row)
 

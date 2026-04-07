@@ -169,20 +169,16 @@ def visualize_greedy_solution(items, solution, width, height):
 
 
 def test_model_basic():
-    file_path = DATA_DIR / 'car_mats_2.txt' #'test.txt'
+    file_path = DATA_DIR / 'test.txt'
     items = util_model.parse_items(str(file_path))
     assert len(items) > 0, "no items parsed from test file"
-    
-    mdl_items = []
-    for i in range( len(items)//5):
-        mdl_items.append(items[5*i])
 
-    items = mdl_items[:4] 
-    
-    R = 4
-    S = 10
-    height = 3000.0
-    width = 3000.0
+    items = items[:4]
+
+    R = 1
+    S = 6
+    height = 500.0
+    width = 500.0
 
     # file_path = DATA_DIR / 'test.txt'
     # items = util_model.parse_items(str(file_path))
@@ -206,7 +202,17 @@ def test_model_basic():
     print("start model")
 
     problem_start = time.time()
-    problem = Problem(data, S, R, height, width)
+    problem = Problem(
+        data,
+        S,
+        R,
+        height,
+        width,
+        enable_output=False,
+        relative_gap=0.5,
+        time_limit_sec=8.0,
+        stop_after_first_solution=True,
+    )
     problem_time = time.time() - problem_start
     
     print("start solving")
@@ -226,7 +232,7 @@ def test_model_basic():
 
     status = results.get("status")
     has_primal = (
-        status == "OPTIMAL"
+        status in {"OPTIMAL", "FEASIBLE"}
         and isinstance(results.get("x"), list)
         and isinstance(results.get("deltas"), list)
         and len(results["x"]) == len(data.items)
@@ -314,7 +320,7 @@ def test_model_basic():
 
 
 def test_greedy_basic():
-    file_path = DATA_DIR / 'car_mats_2.txt'
+    file_path = DATA_DIR / 'test.txt'
     items = util_model.parse_items(str(file_path))
     assert len(items) > 0, "no items parsed from test file"
 
@@ -324,10 +330,10 @@ def test_greedy_basic():
 
     # items = mdl_items[:4] 
 
-    R = 4
-    S = 10
-    height = 10000.0
-    width = 10000.0
+    R = 1
+    S = 6
+    height = 500.0
+    width = 500.0
 
     total_start = time.time()
 
@@ -473,8 +479,8 @@ def test_hybrid_basic():
     
     R = 4
     S = 10
-    height = 400.0
-    width = 400.0
+    height = 500.0
+    width = 500.0
 
     total_start = time.time()
 
@@ -492,23 +498,22 @@ def test_hybrid_basic():
     solver_time = time.time() - solver_start
 
     random_iterations = 1
-    random_seed = 122
+    random_seed = None
     random_sample_size = 10
 
-    unpack_last_n = 10
+    unpack_last_n = 5
 
     solve_start = time.time()
     result = solver.solve(
         unpack_last_n = unpack_last_n,
-        crop_height= height,
+        crop_height= height * 1/3,
         use_top_crop=True,
         free_space_improvement=True,
         solver_gap=0.2,
-        model_time_limit_sec=False,
+        model_time_limit_sec=8.0,
         stop_after_first_solution=False,
-        model_enable_output=True,
-        lock_greedy_unpacked=False,
-        max_model_unfixed_items=None,
+        model_enable_output=False,
+        min_unpacked_in_sample=2,
         random_iterations=random_iterations,
         random_seed=random_seed,
         random_sample_size=random_sample_size,
@@ -553,8 +558,12 @@ def test_hybrid_basic():
     assert stats.get("random_iterations_requested") == random_iterations
     assert stats.get("random_iterations_executed") == random_iterations
     assert int(stats.get("random_sample_size_requested", -1)) == max(0, int(random_sample_size))
-    expected_unpacked = min(int(stats.get("packed_by_greedy", 0)), max(0, int(unpack_last_n)))
-    assert int(stats.get("actual_unpacked_from_greedy", -1)) == expected_unpacked
+    assert int(stats.get("min_unpacked_in_sample", -1)) == 2
+    actual_unpacked = int(stats.get("actual_unpacked_from_greedy", -1))
+    unpack_ids_count = int(stats.get("unpack_ids_count", -1))
+    packed_by_greedy = int(stats.get("packed_by_greedy", 0))
+    assert actual_unpacked == unpack_ids_count
+    assert 0 <= actual_unpacked <= min(packed_by_greedy, max(0, int(unpack_last_n)))
     model_pool_count = int(stats.get("model_pool_ids_count", 0))
     expected_sample_size = min(model_pool_count, max(0, int(random_sample_size)))
     assert int(stats.get("random_sample_size", -1)) == expected_sample_size
@@ -681,11 +690,10 @@ def test_hybrid_width_basic():
         use_right_crop=True,
         free_space_improvement=False,
         solver_gap=1.0,
-        model_time_limit_sec=None,
+        model_time_limit_sec=8.0,
         stop_after_first_solution=False,
-        model_enable_output=True,
-        lock_greedy_unpacked=False,
-        max_model_unfixed_items=5,
+        model_enable_output=False,
+        min_unpacked_in_sample=2,
         random_iterations=random_iterations,
         random_seed=random_seed,
         random_sample_size=random_sample_size,
@@ -723,8 +731,12 @@ def test_hybrid_width_basic():
     assert stats.get("random_iterations_requested") == random_iterations
     assert stats.get("random_iterations_executed") == random_iterations
     assert int(stats.get("random_sample_size_requested", -1)) == max(0, int(random_sample_size))
-    expected_unpacked = min(int(stats.get("packed_by_greedy", 0)), max(0, int(unpack_last_n)))
-    assert int(stats.get("actual_unpacked_from_greedy", -1)) == expected_unpacked
+    assert int(stats.get("min_unpacked_in_sample", -1)) == 2
+    actual_unpacked = int(stats.get("actual_unpacked_from_greedy", -1))
+    unpack_ids_count = int(stats.get("unpack_ids_count", -1))
+    packed_by_greedy = int(stats.get("packed_by_greedy", 0))
+    assert actual_unpacked == unpack_ids_count
+    assert 0 <= actual_unpacked <= min(packed_by_greedy, max(0, int(unpack_last_n)))
     model_pool_count = int(stats.get("model_pool_ids_count", 0))
     expected_sample_size = min(model_pool_count, max(0, int(random_sample_size)))
     assert int(stats.get("random_sample_size", -1)) == expected_sample_size

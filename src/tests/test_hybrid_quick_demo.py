@@ -82,11 +82,10 @@ def test_hybrid_vertical_crop_demo_improves_and_visualizes():
         model_time_limit_sec=8.0,
         stop_after_first_solution=False,
         model_enable_output=False,
-        lock_greedy_unpacked=False,
-        max_model_unfixed_items=30,
         random_iterations=1,
         random_seed=7,
         random_sample_size=9,
+        min_unpacked_in_sample=2,
     )
 
     visualize_hybrid_result(
@@ -99,3 +98,5 @@ def test_hybrid_vertical_crop_demo_improves_and_visualizes():
     )
 
     _assert_hybrid_improves(result)
+    stats = result.get("hybrid_stats", {})
+    assert int(stats.get("min_unpacked_in_sample", -1)) == 2

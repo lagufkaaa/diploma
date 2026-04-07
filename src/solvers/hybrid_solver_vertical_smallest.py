@@ -1,4 +1,5 @@
 ﻿import time
+import random
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, MutableMapping, Optional, Set, Tuple
@@ -9,6 +10,7 @@ from shapely.geometry import GeometryCollection, LineString, MultiLineString, Mu
 
 from core.data import Data, Item
 from solvers.greedy_solver import GreedySolver
+from solvers.hybrid_hard_timeout import solve_hybrid_problem_with_hard_timeout
 from solvers.model_hybrid import Problem as HybridProblem
 
 
@@ -92,9 +94,8 @@ class HybridSolver:
         model_time_limit_sec: Optional[float] = None,
         model_num_threads: Optional[int] = None,
         stop_after_first_solution: bool = True,
-        lock_greedy_unpacked: bool = True,
-        max_model_unfixed_items: Optional[int] = None,
         model_enable_output: bool = False,
+        min_unpacked_in_sample: int = 0,
         random_iterations: int = 1,
         random_seed: Optional[int] = 0,
         random_sample_size: Optional[int] = None,
@@ -240,7 +241,6 @@ class HybridSolver:
         candidate_ids = self._select_candidate_ids(
             packed_records=candidate_source_records,
             unpack_last_n=unpack_last_n,
-            max_model_unfixed_items=None,
         )
         unpack_ids: Set[object] = set(candidate_ids)
         _hybrid_log(f"selected unpack_last_n candidates: {len(unpack_ids)}", force=True)
@@ -284,21 +284,34 @@ class HybridSolver:
         requested_sample_size = (
             10 if random_sample_size is None else max(0, int(random_sample_size))
         )
+        min_unpacked_requested = max(0, int(min_unpacked_in_sample))
         sample_size = int(requested_sample_size)
         random_iterations = max(1, int(random_iterations))
         random_seed_requested = int(random_seed) if random_seed is not None else None
-        random_seed_used = None
+        if min_unpacked_requested > 0:
+            if random_seed is None:
+                random_seed_used = random.SystemRandom().randrange(0, 2**63)
+                random_seed_requested = None
+            else:
+                random_seed_used = int(random_seed)
+                random_seed_requested = int(random_seed)
+            rng: Optional[random.Random] = random.Random(random_seed_used)
+        else:
+            random_seed_used = None
+            rng = None
+        ordered_unpack_ids = [item_id for item_id in ordered_pool_ids if item_id in unpack_ids]
         smallest_pool_ids = self._select_smallest_pool_item_ids(
             ordered_pool_ids=ordered_pool_ids,
             sample_size=sample_size,
         )
-        effective_sample_size = len(smallest_pool_ids)
+        effective_sample_size = min(len(ordered_pool_ids), sample_size)
         _hybrid_log(
             (
                 "sampling config: strategy=smallest_area, "
                 f"sample_size={sample_size}, selected={effective_sample_size}, "
-                f"iterations={random_iterations}, seed_ignored={random_seed is not None}, "
-                f"require_improvement={require_improvement}"
+                f"iterations={random_iterations}, seed_used={random_seed_used}, "
+                f"require_improvement={require_improvement}, "
+                f"min_unpacked_in_sample={min_unpacked_requested}"
             ),
             force=True,
         )
@@ -315,9 +328,9 @@ class HybridSolver:
         best_model_iteration = 1
         best_model_item_ids: Set[object] = set()
         best_sampled_item_ids: Set[object] = set()
-        best_forced_unpacked_ids: Set[object] = set(model_pool_ids)
         best_min_objective_fallback_used = False
         model_time = 0.0
+        iteration_stats: List[dict] = []
 
         def _status_rank(status_val: str) -> int:
             if status_val == "OPTIMAL":
@@ -327,12 +340,34 @@ class HybridSolver:
             return 0
 
         for iter_idx in range(random_iterations):
-            sampled_item_ids: Set[object] = set(smallest_pool_ids)
+            if not ordered_pool_ids or sample_size <= 0:
+                sampled_item_ids: Set[object] = set()
+            else:
+                k = min(len(ordered_pool_ids), sample_size)
+                mandatory_unpacked = min(k, min_unpacked_requested, len(ordered_unpack_ids))
+                if mandatory_unpacked > 0:
+                    if mandatory_unpacked >= len(ordered_unpack_ids):
+                        sampled_unpack_ids = list(ordered_unpack_ids)
+                    else:
+                        if rng is None:
+                            sampled_unpack_ids = random.sample(ordered_unpack_ids, k=mandatory_unpacked)
+                        else:
+                            sampled_unpack_ids = rng.sample(ordered_unpack_ids, k=mandatory_unpacked)
+                else:
+                    sampled_unpack_ids = []
+
+                sampled_unpack_set = set(sampled_unpack_ids)
+                remaining_slots = k - len(sampled_unpack_ids)
+                smallest_remaining_ids = [
+                    item_id for item_id in smallest_pool_ids if item_id not in sampled_unpack_set
+                ]
+                sampled_remaining_ids = smallest_remaining_ids[:remaining_slots]
+                sampled_ids = list(sampled_unpack_ids) + list(sampled_remaining_ids)
+                sampled_item_ids = set(sampled_ids)
 
             model_item_ids = set(sampled_item_ids)
 
             fixed_records = [rec for rec in fixed_records_base if rec.item.id not in model_item_ids]
-            forced_unpacked_ids = set(model_pool_ids - model_item_ids)
             forced_by_window = 0
             fixed_blocker_records = (
                 [
@@ -373,7 +408,7 @@ class HybridSolver:
                 (
                     f"iter {iter_idx + 1}/{random_iterations}: model_items={len(model_item_ids)} "
                     f"(sampled={len(sampled_item_ids)}, forced_window={forced_by_window}), "
-                    f"fixed_records={len(fixed_records)}, forced_unpacked={len(forced_unpacked_ids)}, "
+                    f"fixed_records={len(fixed_records)}, "
                     f"fixed_blockers={len(fixed_blocker_records)}, "
                     f"grid_anchored_fixed={len(fixed_grid_anchor_specs)}, "
                     f"fixed_area={fixed_area:.3f}, local_min_objective={local_min_objective}, "
@@ -423,8 +458,25 @@ class HybridSolver:
                     best_model_iteration = int(iter_idx + 1)
                     best_model_item_ids = set(model_item_ids)
                     best_sampled_item_ids = set(sampled_item_ids)
-                    best_forced_unpacked_ids = set(forced_unpacked_ids)
                     best_min_objective_fallback_used = False
+                iteration_stats.append(
+                    {
+                        "iteration": int(iter_idx + 1),
+                        "sampled_model_item_ids_count": int(len(sampled_item_ids)),
+                        "model_item_ids_count": int(len(model_item_ids)),
+                        "fixed_records_count": int(len(fixed_records)),
+                        "fixed_blockers_count": int(len(fixed_blocker_records)),
+                        "local_min_objective": (
+                            float(local_min_objective) if local_min_objective is not None else None
+                        ),
+                        "local_max_objective": float(local_max_objective),
+                        "status": str(iter_status),
+                        "objective_value": float(iter_obj) if iter_obj is not None else None,
+                        "iter_time_sec": float(iter_time),
+                        "selected_as_best": bool(choose_iteration),
+                        "model_data_empty": True,
+                    }
+                )
                 continue
             local_fixed_assignments = self._build_local_fixed_assignments(
                 model_data=local_model_data,
@@ -463,8 +515,8 @@ class HybridSolver:
                     ),
                     force=True,
                 )
-                problem = HybridProblem(
-                    local_model_data,
+                base_problem_kwargs = dict(
+                    data=local_model_data,
                     S=self.S,
                     R=local_model_data.R,
                     height=self.height,
@@ -473,7 +525,6 @@ class HybridSolver:
                     enable_output=model_enable_output,
                     fixed_item_assignments=local_fixed_assignments,
                     no_lower_y_bound_item_ids=set(fixed_grid_anchor_specs.keys()),
-                    forced_unpacked_ids=set(),
                     restricted_item_ids=set(model_item_ids) if use_top_crop else set(),
                     packing_y_min=packing_y_min if use_top_crop else None,
                     packing_y_max=packing_y_max if use_top_crop else None,
@@ -482,27 +533,46 @@ class HybridSolver:
                     time_limit_sec=model_time_limit_sec,
                     num_threads=model_num_threads,
                     stop_after_first_solution=stop_after_first_solution,
-                    progress_callback=lambda msg, label=iter_label: _hybrid_log(
-                        f"{label}: {msg}",
-                        force=True,
-                    ),
                     progress_label="[model]",
                 )
-                _hybrid_log(
-                    (
-                        f"{iter_label}: build model (Problem init) finished in "
-                        f"{time.perf_counter() - run_build_t0:.2f}s [run={run_label}]"
-                    ),
-                    force=True,
-                )
-                _hybrid_log(
-                    (
-                        f"{iter_label}: start model.solve() "
-                        f"(enable_output={bool(model_enable_output)}, run={run_label})"
-                    ),
-                    force=True,
-                )
-                run_results = problem.solve()
+                if model_time_limit_sec is not None:
+                    run_results, timed_out_hard, hard_error = solve_hybrid_problem_with_hard_timeout(
+                        problem_kwargs=base_problem_kwargs,
+                        timeout_sec=model_time_limit_sec,
+                    )
+                    if timed_out_hard:
+                        _hybrid_log(
+                            f"{iter_label}: hard timeout reached ({float(model_time_limit_sec):.2f}s), process terminated",
+                            force=True,
+                        )
+                    if hard_error:
+                        _hybrid_log(
+                            f"{iter_label}: hard-timeout helper note: {hard_error}",
+                            force=True,
+                        )
+                else:
+                    problem = HybridProblem(
+                        **base_problem_kwargs,
+                        progress_callback=lambda msg, label=iter_label: _hybrid_log(
+                            f"{label}: {msg}",
+                            force=True,
+                        ),
+                    )
+                    _hybrid_log(
+                        (
+                            f"{iter_label}: build model (Problem init) finished in "
+                            f"{time.perf_counter() - run_build_t0:.2f}s [run={run_label}]"
+                        ),
+                        force=True,
+                    )
+                    _hybrid_log(
+                        (
+                            f"{iter_label}: start model.solve() "
+                            f"(enable_output={bool(model_enable_output)}, run={run_label})"
+                        ),
+                        force=True,
+                    )
+                    run_results = problem.solve()
                 run_status = str(run_results.get("status", "NOT_SOLVED"))
                 _hybrid_log(
                     f"{iter_label}: model.solve() finished [run={run_label}, status={run_status}]",
@@ -576,7 +646,6 @@ class HybridSolver:
                 best_model_iteration = int(iter_idx + 1)
                 best_model_item_ids = set(model_item_ids)
                 best_sampled_item_ids = set(sampled_item_ids)
-                best_forced_unpacked_ids = set(forced_unpacked_ids)
                 best_min_objective_fallback_used = False
                 _hybrid_log(
                     (
@@ -585,12 +654,29 @@ class HybridSolver:
                     ),
                     force=True,
                 )
+            iteration_stats.append(
+                {
+                    "iteration": int(iter_idx + 1),
+                    "sampled_model_item_ids_count": int(len(sampled_item_ids)),
+                    "model_item_ids_count": int(len(model_item_ids)),
+                    "fixed_records_count": int(len(fixed_records)),
+                    "fixed_blockers_count": int(len(fixed_blocker_records)),
+                    "local_min_objective": (
+                        float(local_min_objective) if local_min_objective is not None else None
+                    ),
+                    "local_max_objective": float(local_max_objective),
+                    "status": str(iter_status),
+                    "objective_value": float(iter_obj) if iter_obj is not None else None,
+                    "iter_time_sec": float(iter_time),
+                    "selected_as_best": bool(choose_iteration),
+                    "model_data_empty": False,
+                }
+            )
 
         model_results = best_model_results
         model_item_ids = best_model_item_ids
         sampled_item_ids = best_sampled_item_ids
         fixed_records = [rec for rec in fixed_records_base if rec.item.id not in model_item_ids]
-        forced_unpacked_ids = best_forced_unpacked_ids
         forced_by_window = 0
         _hybrid_log(
             (
@@ -633,11 +719,11 @@ class HybridSolver:
             and (solver_gap is None or float(solver_gap) <= 0.0)
         )
         proven_global_optimal = model_status == "OPTIMAL"
-        can_claim_no_improvement = proven_global_optimal
+        can_claim_no_improvement = bool(full_search_mode and proven_global_optimal)
 
         if not improved:
             fail_status = "NOT_IMPROVED" if can_claim_no_improvement else "NOT_PROVEN"
-            use_model_as_final = fail_status == "NOT_PROVEN" and model_ok
+            use_model_as_final = fail_status == "NOT_PROVEN" and model_ok and (float(model_obj) > greedy_obj + 1e-9)
 
             final_solution = model_results if use_model_as_final else greedy_results
             final_objective = float(model_obj) if use_model_as_final and model_obj is not None else greedy_obj
@@ -670,11 +756,11 @@ class HybridSolver:
                     "selected_unpacked_items_for_model": int(selected_unpacked_in_model),
                     "restricted_items_in_window": len(model_item_ids),
                     "fixed_items_in_model": len(fixed_records),
-                    "forced_unpacked_ids": len(forced_unpacked_ids),
                     "random_iterations_requested": int(random_iterations),
                     "random_iterations_executed": int(random_iterations),
+                    "min_unpacked_in_sample": int(min_unpacked_requested),
                     "random_sample_size_requested": int(requested_sample_size),
-                    "random_sample_size": int(effective_sample_size),
+                    "random_sample_size": int(min(len(ordered_pool_ids), sample_size)),
                     "random_seed_requested": random_seed_requested,
                     "random_seed_used": random_seed_used,
                     "sampling_strategy": "smallest_area",
@@ -697,6 +783,7 @@ class HybridSolver:
                     "full_search_mode": full_search_mode,
                     "proven_global_optimal": proven_global_optimal,
                     "can_claim_no_improvement": can_claim_no_improvement,
+                    "iteration_stats": list(iteration_stats),
                 },
             }
 
@@ -728,11 +815,11 @@ class HybridSolver:
                 "selected_unpacked_items_for_model": int(selected_unpacked_in_model),
                 "restricted_items_in_window": len(model_item_ids),
                 "fixed_items_in_model": len(fixed_records),
-                "forced_unpacked_ids": len(forced_unpacked_ids),
                 "random_iterations_requested": int(random_iterations),
                 "random_iterations_executed": int(random_iterations),
+                "min_unpacked_in_sample": int(min_unpacked_requested),
                 "random_sample_size_requested": int(requested_sample_size),
-                "random_sample_size": int(effective_sample_size),
+                "random_sample_size": int(min(len(ordered_pool_ids), sample_size)),
                 "random_seed_requested": random_seed_requested,
                 "random_seed_used": random_seed_used,
                 "sampling_strategy": "smallest_area",
@@ -752,6 +839,7 @@ class HybridSolver:
                 "min_objective_fallback_used": bool(best_min_objective_fallback_used),
                 "full_search_mode": full_search_mode,
                 "proven_global_optimal": proven_global_optimal,
+                "iteration_stats": list(iteration_stats),
             },
         }
 
@@ -792,7 +880,6 @@ class HybridSolver:
         *,
         packed_records: List[_PackedRecord],
         unpack_last_n: int,
-        max_model_unfixed_items: Optional[int],
     ) -> Set[object]:
         candidate_ids: List[object] = []
         seen: Set[object] = set()
@@ -807,10 +894,6 @@ class HybridSolver:
         if unpack_last_n > 0:
             for rec in packed_records[-unpack_last_n:]:
                 add_candidate(rec.item.id)
-
-        if max_model_unfixed_items is not None:
-            limit = max(0, int(max_model_unfixed_items))
-            candidate_ids = candidate_ids[:limit]
 
         return set(candidate_ids)
 
@@ -866,32 +949,6 @@ class HybridSolver:
 
         fallback_rank = len(rank_by_idx) + 1
         packed_records.sort(key=lambda rec: (rank_by_idx.get(int(rec.idx), fallback_rank), int(rec.idx)))
-
-    def _build_partial_assignment(
-        self,
-        *,
-        packed_records: List[_PackedRecord],
-        candidate_ids: Set[object],
-        lock_greedy_unpacked: bool,
-    ) -> Tuple[Dict[Item, Tuple[float, int]], Set[object]]:
-        fixed_item_assignments: Dict[Item, Tuple[float, int]] = {}
-        packed_ids: Set[object] = set()
-
-        for rec in packed_records:
-            packed_ids.add(rec.item.id)
-            if rec.item.id in candidate_ids:
-                continue
-            fixed_item_assignments[rec.item] = (rec.x, rec.strip)
-
-        forced_unpacked_ids: Set[object] = set()
-        if lock_greedy_unpacked:
-            all_item_ids = {it.id for it in self.data.items}
-            greedy_unpacked_ids = all_item_ids - packed_ids
-            for item_id in greedy_unpacked_ids:
-                if item_id not in candidate_ids:
-                    forced_unpacked_ids.add(item_id)
-
-        return fixed_item_assignments, forced_unpacked_ids
 
     def _placed_geometry(self, item: Item, x_shift: float, y_shift: float):
         return affinity.translate(self._local_geom[item], xoff=float(x_shift), yoff=float(y_shift))

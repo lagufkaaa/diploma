@@ -1,6 +1,6 @@
 detailed report for S=10
-run_started: 2026-04-05T20:01:25
-run_finished: 2026-04-05T20:06:48
+run_started: 2026-04-06T17:29:56
+run_finished: 2026-04-06T17:56:27
 
 input_data
 data_file: C:\Users\user\Desktop\diploma\data_car_mats\car_mats_2.txt
@@ -24,7 +24,7 @@ lock_greedy_unpacked: False
 max_model_unfixed_items: None
 random_iterations: 1
 random_seed_requested: None
-random_seed_used: 3349162921347634385
+random_seed_used: 7966771729163611807
 random_sample_size: 7
 greedy_enable_output: True
 hybrid_enable_output: True
@@ -33,7 +33,7 @@ greedy_result_cache_path: None
 greedy_result_cache_ttl_days: None
 
 run_result
-time_sec: 323.603797
+time_sec: 1594.799846
 status: NOT_PROVEN
 selected_solution: greedy
 final_objective: 71448371.05895315
@@ -65,7 +65,7 @@ hybrid_stats_json
   "random_sample_size_requested": 7,
   "random_sample_size": 7,
   "random_seed_requested": null,
-  "random_seed_used": 3349162921347634385,
+  "random_seed_used": 7966771729163611807,
   "best_model_iteration": 1,
   "greedy_objective_value": 71448371.05895315,
   "model_objective_value": null,
@@ -77,9 +77,9 @@ hybrid_stats_json
   "target_free_space_percent": 28.551628940946845,
   "require_improvement": true,
   "min_improvement_area": 9.999999999999999e-05,
-  "greedy_time_sec": 0.006451199995353818,
-  "model_time_sec": 323.5287259000179,
-  "total_time_sec": 323.60357499998645,
+  "greedy_time_sec": 0.010847600000488455,
+  "model_time_sec": 1594.6642017999993,
+  "total_time_sec": 1594.7865388999999,
   "model_status": "INFEASIBLE",
   "min_objective_fallback_used": false,
   "full_search_mode": false,
@@ -6663,7 +6663,7 @@ full_result_json
     "random_sample_size_requested": 7,
     "random_sample_size": 7,
     "random_seed_requested": null,
-    "random_seed_used": 3349162921347634385,
+    "random_seed_used": 7966771729163611807,
     "best_model_iteration": 1,
     "greedy_objective_value": 71448371.05895315,
     "model_objective_value": null,
@@ -6675,9 +6675,9 @@ full_result_json
     "target_free_space_percent": 28.551628940946845,
     "require_improvement": true,
     "min_improvement_area": 9.999999999999999e-05,
-    "greedy_time_sec": 0.006451199995353818,
-    "model_time_sec": 323.5287259000179,
-    "total_time_sec": 323.60357499998645,
+    "greedy_time_sec": 0.010847600000488455,
+    "model_time_sec": 1594.6642017999993,
+    "total_time_sec": 1594.7865388999999,
     "model_status": "INFEASIBLE",
     "min_objective_fallback_used": false,
     "full_search_mode": false,

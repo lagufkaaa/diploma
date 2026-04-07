@@ -1,6 +1,6 @@
 detailed report for S=14
-run_started: 2026-04-05T22:46:31
-run_finished: 2026-04-05T22:50:11
+run_started: 2026-04-06T19:19:47
+run_finished: 2026-04-06T19:34:17
 
 input_data
 data_file: C:\Users\user\Desktop\diploma\data_car_mats\car_mats_2.txt
@@ -24,7 +24,7 @@ lock_greedy_unpacked: False
 max_model_unfixed_items: None
 random_iterations: 1
 random_seed_requested: None
-random_seed_used: 2883349317904494153
+random_seed_used: 8874517543930856960
 random_sample_size: 7
 greedy_enable_output: True
 hybrid_enable_output: True
@@ -33,17 +33,17 @@ greedy_result_cache_path: None
 greedy_result_cache_ttl_days: None
 
 run_result
-time_sec: 220.061739
+time_sec: 870.182865
 status: NOT_PROVEN
 selected_solution: greedy
 final_objective: 71448371.05895315
 model_status: INFEASIBLE
-greedy_cache_hit: False
+greedy_cache_hit: True
 image_file: C:\Users\user\Desktop\diploma\hybrid_rows_benchmark\images\hybrid_result_S_14.png
 
 hybrid_stats_json
 {
-  "greedy_cache_hit": false,
+  "greedy_cache_hit": true,
   "packed_by_greedy": 25,
   "unpack_last_n": 5,
   "use_top_crop": true,
@@ -55,8 +55,8 @@ hybrid_stats_json
   "model_item_ids_count": 7,
   "sampled_model_item_ids_count": 7,
   "window_forced_model_items_count": 0,
-  "selected_packed_items_for_model": 2,
-  "selected_unpacked_items_for_model": 5,
+  "selected_packed_items_for_model": 1,
+  "selected_unpacked_items_for_model": 6,
   "restricted_items_in_window": 7,
   "fixed_items_in_model": 20,
   "forced_unpacked_ids": 23,
@@ -65,7 +65,7 @@ hybrid_stats_json
   "random_sample_size_requested": 7,
   "random_sample_size": 7,
   "random_seed_requested": null,
-  "random_seed_used": 2883349317904494153,
+  "random_seed_used": 8874517543930856960,
   "best_model_iteration": 1,
   "greedy_objective_value": 71448371.05895315,
   "model_objective_value": null,
@@ -77,9 +77,9 @@ hybrid_stats_json
   "target_free_space_percent": 28.551628940946845,
   "require_improvement": true,
   "min_improvement_area": 9.999999999999999e-05,
-  "greedy_time_sec": 2.2650514999986626,
-  "model_time_sec": 217.7247345999931,
-  "total_time_sec": 220.0571745999914,
+  "greedy_time_sec": 0.004990999999790802,
+  "model_time_sec": 870.1355679999997,
+  "total_time_sec": 870.1826292000005,
   "model_status": "INFEASIBLE",
   "min_objective_fallback_used": false,
   "full_search_mode": false,
@@ -8241,7 +8241,7 @@ full_result_json
     "packing_y_max": 10000.0
   },
   "hybrid_stats": {
-    "greedy_cache_hit": false,
+    "greedy_cache_hit": true,
     "packed_by_greedy": 25,
     "unpack_last_n": 5,
     "use_top_crop": true,
@@ -8253,8 +8253,8 @@ full_result_json
     "model_item_ids_count": 7,
     "sampled_model_item_ids_count": 7,
     "window_forced_model_items_count": 0,
-    "selected_packed_items_for_model": 2,
-    "selected_unpacked_items_for_model": 5,
+    "selected_packed_items_for_model": 1,
+    "selected_unpacked_items_for_model": 6,
     "restricted_items_in_window": 7,
     "fixed_items_in_model": 20,
     "forced_unpacked_ids": 23,
@@ -8263,7 +8263,7 @@ full_result_json
     "random_sample_size_requested": 7,
     "random_sample_size": 7,
     "random_seed_requested": null,
-    "random_seed_used": 2883349317904494153,
+    "random_seed_used": 8874517543930856960,
     "best_model_iteration": 1,
     "greedy_objective_value": 71448371.05895315,
     "model_objective_value": null,
@@ -8275,9 +8275,9 @@ full_result_json
     "target_free_space_percent": 28.551628940946845,
     "require_improvement": true,
     "min_improvement_area": 9.999999999999999e-05,
-    "greedy_time_sec": 2.2650514999986626,
-    "model_time_sec": 217.7247345999931,
-    "total_time_sec": 220.0571745999914,
+    "greedy_time_sec": 0.004990999999790802,
+    "model_time_sec": 870.1355679999997,
+    "total_time_sec": 870.1826292000005,
     "model_status": "INFEASIBLE",
     "min_objective_fallback_used": false,
     "full_search_mode": false,

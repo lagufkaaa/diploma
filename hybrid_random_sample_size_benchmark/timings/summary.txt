@@ -1,12 +1,12 @@
 summary (model only, without greedy/data build)
-RANDOM_SAMPLE_SIZE=8 | model_time_sec=4546.801296 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=1985119147032838611
-RANDOM_SAMPLE_SIZE=9 | model_time_sec=4775.198591 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=5154818353355410636
-RANDOM_SAMPLE_SIZE=10 | model_time_sec=7215.219598 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=7846566717504388232
-RANDOM_SAMPLE_SIZE=11 | model_time_sec=7216.683949 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=614709503550147830
-RANDOM_SAMPLE_SIZE=12 | model_time_sec=7217.384806 | status=NOT_PROVEN | model_status=NOT_SOLVED | final_objective=71448371.05895315 | random_seed_used=6797438765205454754
+RANDOM_SAMPLE_SIZE=5 | model_time_sec=12.857797 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=8863008741354485385
+RANDOM_SAMPLE_SIZE=6 | model_time_sec=15.615829 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=6401842582567970949
+RANDOM_SAMPLE_SIZE=7 | model_time_sec=25.717757 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=3398045518844162646
+RANDOM_SAMPLE_SIZE=8 | model_time_sec=93.248258 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=6108546305904516799
+RANDOM_SAMPLE_SIZE=9 | model_time_sec=180.006392 | status=NOT_PROVEN | model_status=INFEASIBLE | final_objective=71448371.05895315 | random_seed_used=5317822360649373164
 
 time_stats_model_only
 count: 5
-min_model_time_sec: 4546.801296 (RANDOM_SAMPLE_SIZE=8)
-max_model_time_sec: 7217.384806 (RANDOM_SAMPLE_SIZE=12)
-avg_model_time_sec: 6194.257648
+min_model_time_sec: 12.857797 (RANDOM_SAMPLE_SIZE=5)
+max_model_time_sec: 180.006392 (RANDOM_SAMPLE_SIZE=9)
+avg_model_time_sec: 65.489207
