@@ -1,5 +1,6 @@
 import csv
 import json
+import random
 import re
 import sys
 import time
@@ -41,7 +42,7 @@ SOLVER_NAME = "SCIP"
 NUM_RUNS = 20
 BASE_RANDOM_SEED: Optional[int] = None
 
-UNPACK_LAST_N = 4
+UNPACK_LAST_N = 3
 CROP_HEIGHT_RATIO = 1.0 / 3.0
 FREE_SPACE_IMPROVEMENT = True
 SOLVER_GAP = 1.0
@@ -74,10 +75,23 @@ SAMPLING_STRATEGY = "largest"
 RUN_TAG: Optional[str] = None
 AUTO_RUN_TAG = True
 
+# Seed behavior:
+# If True and BASE_RANDOM_SEED is None, each run gets a unique random seed.
+FORCE_UNIQUE_RANDOM_SEEDS_PER_RUN = True
+
 IMPROVEMENT_EPS = 1e-9
 
 
 SHARED_NFP_CACHE = {}
+
+
+def draw_unique_seed(used: set[int], rng: random.SystemRandom) -> int:
+    while True:
+        candidate = int(rng.randrange(0, 2**63))
+        if candidate in used:
+            continue
+        used.add(candidate)
+        return candidate
 
 
 def sanitize_run_tag(raw_tag: str) -> str:
@@ -379,6 +393,7 @@ def main() -> None:
         "greedy_result_cache_ttl_days": GREEDY_RESULT_CACHE_TTL_DAYS,
         "greedy_order_strategy": GREEDY_ORDER_STRATEGY,
         "sampling_strategy": SAMPLING_STRATEGY,
+        "force_unique_random_seeds_per_run": bool(FORCE_UNIQUE_RANDOM_SEEDS_PER_RUN),
         "run_tag_requested": RUN_TAG,
         "auto_run_tag": bool(AUTO_RUN_TAG),
         "run_tag_effective": EFFECTIVE_RUN_TAG,
@@ -403,6 +418,7 @@ def main() -> None:
     print(f"Results dir: {RESULTS_DIR.resolve()}")
     print(f"Algorithm variants: {len(algorithm_variants)}")
     print(f"Runs per algorithm: {NUM_RUNS}, random_iterations per run: {RANDOM_ITERATIONS}")
+    print(f"Force unique random seeds per run: {FORCE_UNIQUE_RANDOM_SEEDS_PER_RUN}")
 
     data = Data(
         items,
@@ -414,6 +430,9 @@ def main() -> None:
     run_rows: List[Dict[str, Any]] = []
     iteration_rows: List[Dict[str, Any]] = []
     global_run_idx = 0
+    system_rng = random.SystemRandom()
+    used_model_seeds: set[int] = set()
+    used_greedy_seeds: set[int] = set()
 
     for variant in algorithm_variants:
         algorithm_id = str(variant["algorithm_id"])
@@ -425,6 +444,11 @@ def main() -> None:
             f"\n=== Algorithm: {algorithm_id} "
             f"(greedy={greedy_strategy}, sampling={sampling_strategy}) ==="
         )
+        if greedy_strategy == "random" and GREEDY_USE_RESULT_CACHE:
+            print(
+                "Random greedy selected: greedy result cache is force-disabled per run "
+                "to guarantee fresh packing."
+            )
 
         algo_image_dir: Optional[Path] = None
         if SAVE_IMAGES:
@@ -433,8 +457,28 @@ def main() -> None:
 
         for run_idx in range(1, int(NUM_RUNS) + 1):
             global_run_idx += 1
-            run_seed = None if BASE_RANDOM_SEED is None else int(BASE_RANDOM_SEED) + (run_idx - 1)
-            greedy_seed_requested = run_seed if greedy_strategy == "random" else None
+            if BASE_RANDOM_SEED is None:
+                if FORCE_UNIQUE_RANDOM_SEEDS_PER_RUN:
+                    run_seed = draw_unique_seed(used_model_seeds, system_rng)
+                else:
+                    run_seed = None
+            else:
+                run_seed = int(BASE_RANDOM_SEED) + (run_idx - 1)
+
+            if greedy_strategy == "random":
+                if BASE_RANDOM_SEED is None:
+                    if FORCE_UNIQUE_RANDOM_SEEDS_PER_RUN:
+                        greedy_seed_requested = draw_unique_seed(used_greedy_seeds, system_rng)
+                    else:
+                        greedy_seed_requested = None
+                else:
+                    greedy_seed_requested = int(BASE_RANDOM_SEED) + 10_000_000 + (run_idx - 1)
+            else:
+                greedy_seed_requested = None
+
+            effective_greedy_use_result_cache = bool(
+                GREEDY_USE_RESULT_CACHE and greedy_strategy != "random"
+            )
             run_started = datetime.now().isoformat(timespec="seconds")
 
             solver = solver_cls(
@@ -444,7 +488,7 @@ def main() -> None:
                 S=S,
                 solver_name=SOLVER_NAME,
                 greedy_enable_output=GREEDY_ENABLE_OUTPUT,
-                greedy_use_result_cache=GREEDY_USE_RESULT_CACHE,
+                greedy_use_result_cache=effective_greedy_use_result_cache,
                 greedy_result_cache_path=GREEDY_RESULT_CACHE_PATH,
                 greedy_result_cache_ttl_days=GREEDY_RESULT_CACHE_TTL_DAYS,
                 greedy_shared_result_cache=GREEDY_SHARED_RESULT_CACHE,
