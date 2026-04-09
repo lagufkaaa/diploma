@@ -97,6 +97,9 @@ class HybridSolver:
         *,
         unpack_last_n: int,
         crop_height: float,
+        crop_selection_mode: str = "fixed_height",
+        crop_zero_tolerance: float = 1e-6,
+        crop_lowest_multiplier: float = 1.0,
         use_top_crop: bool = True,
         free_space_improvement: bool = False,
         solver_gap: float = 1.0,
@@ -142,15 +145,25 @@ class HybridSolver:
         _hybrid_log(
             (
                 f"start solve: use_top_crop={bool(use_top_crop)}, unpack_last_n={int(max(0, unpack_last_n))}, "
-                f"random_iterations={int(max(1, random_iterations))}"
+                f"random_iterations={int(max(1, random_iterations))}, "
+                f"crop_selection_mode={self._normalize_crop_selection_mode(crop_selection_mode)}"
             ),
             force=True,
         )
-        crop_h_clamped = max(0.0, min(self.height, float(crop_height)))
-        model_height = crop_h_clamped if use_top_crop else self.height
-        y_offset = self.height - crop_h_clamped if use_top_crop else 0.0
+        base_crop_h_clamped = max(0.0, min(self.height, float(crop_height)))
+        crop_selection_mode_effective = self._normalize_crop_selection_mode(
+            crop_selection_mode
+        )
+        crop_zero_tolerance_effective = max(0.0, float(crop_zero_tolerance))
+        crop_lowest_multiplier_effective = max(0.0, float(crop_lowest_multiplier))
+        used_crop_height = base_crop_h_clamped if use_top_crop else self.height
+        crop_decision = "top_crop_disabled" if not use_top_crop else "fixed_height_mode"
+        lowest_unpacked_y_for_crop: Optional[float] = None
+        lowest_distance_to_top_for_crop: Optional[float] = None
+        scaled_lowest_distance_for_crop: Optional[float] = None
+        raw_unpacked_candidates_for_crop_count = 0
         if use_top_crop:
-            packing_y_min = self.height - crop_h_clamped
+            packing_y_min = self.height - used_crop_height
             packing_y_max = self.height
         else:
             packing_y_min = 0.0
@@ -224,7 +237,7 @@ class HybridSolver:
                     "candidate_indices": [],
                     "fixed_indices": [],
                     "use_top_crop": bool(use_top_crop),
-                    "used_crop_height": crop_h_clamped,
+                    "used_crop_height": used_crop_height,
                     "crop_y_min": packing_y_min,
                     "packing_y_min": packing_y_min,
                     "packing_y_max": packing_y_max,
@@ -235,6 +248,17 @@ class HybridSolver:
                     "greedy_random_seed_requested": greedy_random_seed_requested,
                     "greedy_random_seed_used": greedy_random_seed_used,
                     "sampling_strategy": "smallest_area",
+                    "crop_selection_mode_requested": str(crop_selection_mode),
+                    "crop_selection_mode_effective": crop_selection_mode_effective,
+                    "crop_zero_tolerance": float(crop_zero_tolerance_effective),
+                    "crop_lowest_multiplier": float(crop_lowest_multiplier_effective),
+                    "crop_decision": crop_decision,
+                    "lowest_unpacked_y_for_crop": lowest_unpacked_y_for_crop,
+                    "lowest_distance_to_top_for_crop": lowest_distance_to_top_for_crop,
+                    "scaled_lowest_distance_for_crop": scaled_lowest_distance_for_crop,
+                    "raw_unpacked_candidates_for_crop_count": int(
+                        raw_unpacked_candidates_for_crop_count
+                    ),
                     "greedy_time_sec": greedy_time,
                     "model_time_sec": 0.0,
                     "total_time_sec": time.perf_counter() - t0,
@@ -248,6 +272,54 @@ class HybridSolver:
         greedy_unpacked_ids = all_item_ids - packed_ids
         _hybrid_log(
             f"post-greedy: packed_records={len(packed_records)}, greedy_unpacked_ids={len(greedy_unpacked_ids)}",
+            force=True,
+        )
+
+        if use_top_crop and crop_selection_mode_effective == "unpacked_lowest_y":
+            raw_unpacked_candidate_ids_for_crop = self._select_candidate_ids(
+                packed_records=packed_records,
+                unpack_last_n=unpack_last_n,
+            )
+            raw_unpacked_candidates_for_crop_count = len(raw_unpacked_candidate_ids_for_crop)
+            lowest_unpacked_y_for_crop = self._lowest_packed_point_y_by_item_ids(
+                packed_records=packed_records,
+                item_ids=raw_unpacked_candidate_ids_for_crop,
+            )
+            if lowest_unpacked_y_for_crop is None:
+                crop_decision = "adaptive_no_candidates_fallback_crop_height"
+            elif float(lowest_unpacked_y_for_crop) <= crop_zero_tolerance_effective + 1e-9:
+                crop_decision = "adaptive_lowest_near_zero_fallback_crop_height"
+            else:
+                lowest_distance_to_top_for_crop = max(
+                    0.0,
+                    self.height - float(lowest_unpacked_y_for_crop),
+                )
+                scaled_lowest_distance_for_crop = (
+                    float(lowest_distance_to_top_for_crop)
+                    * float(crop_lowest_multiplier_effective)
+                )
+                used_crop_height = max(
+                    float(base_crop_h_clamped),
+                    float(scaled_lowest_distance_for_crop),
+                )
+                used_crop_height = max(0.0, min(self.height, float(used_crop_height)))
+                crop_decision = "adaptive_scaled_distance_vs_crop_height"
+            packing_y_min = self.height - used_crop_height
+            packing_y_max = self.height
+        elif use_top_crop:
+            crop_decision = "fixed_height_mode"
+
+        _hybrid_log(
+            (
+                f"crop selection: mode={crop_selection_mode_effective}, decision={crop_decision}, "
+                f"base_crop_height={base_crop_h_clamped:.3f}, used_crop_height={used_crop_height:.3f}, "
+                f"lowest_unpacked_y={lowest_unpacked_y_for_crop}, "
+                f"distance_to_top={lowest_distance_to_top_for_crop}, "
+                f"scaled_distance={scaled_lowest_distance_for_crop}, "
+                f"multiplier={crop_lowest_multiplier_effective:.6f}, "
+                f"zero_tolerance={crop_zero_tolerance_effective:.6f}, "
+                f"raw_candidates={raw_unpacked_candidates_for_crop_count}"
+            ),
             force=True,
         )
 
@@ -743,7 +815,7 @@ class HybridSolver:
             "candidate_indices": candidate_indices,
             "fixed_indices": fixed_indices,
             "use_top_crop": bool(use_top_crop),
-            "used_crop_height": crop_h_clamped,
+            "used_crop_height": used_crop_height,
             "crop_y_min": packing_y_min,
             "packing_y_min": packing_y_min,
             "packing_y_max": packing_y_max,
@@ -790,7 +862,18 @@ class HybridSolver:
                     "packed_by_greedy": len(packed_records),
                     "unpack_last_n": int(max(0, unpack_last_n)),
                     "use_top_crop": bool(use_top_crop),
-                    "used_crop_height": crop_h_clamped,
+                    "used_crop_height": used_crop_height,
+                    "crop_selection_mode_requested": str(crop_selection_mode),
+                    "crop_selection_mode_effective": crop_selection_mode_effective,
+                    "crop_zero_tolerance": float(crop_zero_tolerance_effective),
+                    "crop_lowest_multiplier": float(crop_lowest_multiplier_effective),
+                    "crop_decision": crop_decision,
+                    "lowest_unpacked_y_for_crop": lowest_unpacked_y_for_crop,
+                    "lowest_distance_to_top_for_crop": lowest_distance_to_top_for_crop,
+                    "scaled_lowest_distance_for_crop": scaled_lowest_distance_for_crop,
+                    "raw_unpacked_candidates_for_crop_count": int(
+                        raw_unpacked_candidates_for_crop_count
+                    ),
                     "candidate_items_for_model": len(model_pool_ids),
                     "unpack_ids_count": len(unpack_ids),
                     "actual_unpacked_from_greedy": int(unpacked_greedy_count),
@@ -852,7 +935,18 @@ class HybridSolver:
                 "packed_by_greedy": len(packed_records),
                 "unpack_last_n": int(max(0, unpack_last_n)),
                 "use_top_crop": bool(use_top_crop),
-                "used_crop_height": crop_h_clamped,
+                "used_crop_height": used_crop_height,
+                "crop_selection_mode_requested": str(crop_selection_mode),
+                "crop_selection_mode_effective": crop_selection_mode_effective,
+                "crop_zero_tolerance": float(crop_zero_tolerance_effective),
+                "crop_lowest_multiplier": float(crop_lowest_multiplier_effective),
+                "crop_decision": crop_decision,
+                "lowest_unpacked_y_for_crop": lowest_unpacked_y_for_crop,
+                "lowest_distance_to_top_for_crop": lowest_distance_to_top_for_crop,
+                "scaled_lowest_distance_for_crop": scaled_lowest_distance_for_crop,
+                "raw_unpacked_candidates_for_crop_count": int(
+                    raw_unpacked_candidates_for_crop_count
+                ),
                 "candidate_items_for_model": len(model_pool_ids),
                 "unpack_ids_count": len(unpack_ids),
                 "actual_unpacked_from_greedy": int(unpacked_greedy_count),
@@ -902,6 +996,23 @@ class HybridSolver:
         raise ValueError(
             f"Unsupported greedy_order_strategy='{strategy}'. "
             "Allowed: deterministic, random."
+        )
+
+    @staticmethod
+    def _normalize_crop_selection_mode(mode: Optional[str]) -> str:
+        value = "fixed_height" if mode is None else str(mode).strip().lower()
+        if value in {"fixed_height", "fixed", "default", "crop_height"}:
+            return "fixed_height"
+        if value in {
+            "unpacked_lowest_y",
+            "unpacked_lowest",
+            "lowest_unpacked_y",
+            "adaptive_lowest",
+        }:
+            return "unpacked_lowest_y"
+        raise ValueError(
+            f"Unsupported crop_selection_mode='{mode}'. "
+            "Allowed: fixed_height, unpacked_lowest_y."
         )
 
     def _collect_packed_records(self, greedy_results: dict) -> List[_PackedRecord]:
@@ -957,6 +1068,23 @@ class HybridSolver:
                 add_candidate(rec.item.id)
 
         return set(candidate_ids)
+
+    def _lowest_packed_point_y_by_item_ids(
+        self,
+        *,
+        packed_records: List[_PackedRecord],
+        item_ids: Set[object],
+    ) -> Optional[float]:
+        if not item_ids:
+            return None
+        min_y: Optional[float] = None
+        for rec in packed_records:
+            if rec.item.id not in item_ids:
+                continue
+            item_low = float(rec.y) + float(rec.item.ymin)
+            if min_y is None or item_low < min_y:
+                min_y = item_low
+        return None if min_y is None else float(min_y)
 
     def _select_smallest_pool_item_ids(
         self,

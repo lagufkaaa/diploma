@@ -39,11 +39,17 @@ HEIGHT = 6000.0
 WIDTH = 6000.0
 SOLVER_NAME = "SCIP"
 
-NUM_RUNS = 20
+NUM_RUNS = 1
 BASE_RANDOM_SEED: Optional[int] = None
 
 UNPACK_LAST_N = 3
 CROP_HEIGHT_RATIO = 1.0 / 3.0
+# Crop selection for top-crop:
+# - fixed_height: always use crop_height
+# - unpacked_lowest_y: use adaptive logic based on lowest unpacked point
+CROP_SELECTION_MODE = "unpacked_lowest_y"
+CROP_ZERO_TOLERANCE = 1e-6
+CROP_LOWEST_MULTIPLIER = 1.5
 FREE_SPACE_IMPROVEMENT = True
 SOLVER_GAP = 1.0
 MODEL_TIME_LIMIT_SEC: Optional[float] = 3600.0
@@ -51,7 +57,7 @@ MODEL_NUM_THREADS: Optional[int] = None
 STOP_AFTER_FIRST_SOLUTION = False
 MODEL_ENABLE_OUTPUT = True
 
-RANDOM_ITERATIONS = 5
+RANDOM_ITERATIONS = 1
 RANDOM_SAMPLE_SIZE = 7
 MIN_UNPACKED_IN_SAMPLE = 0
 
@@ -68,7 +74,7 @@ GREEDY_SHARED_RESULT_CACHE = {}
 # - greedy order strategy: deterministic | random
 # - model sampling strategy: random | smallest | largest
 GREEDY_ORDER_STRATEGY = "random"
-SAMPLING_STRATEGY = "largest"
+SAMPLING_STRATEGY = "smallest"
 
 # Run-output settings.
 # For parallel runs set different RUN_TAG values manually OR keep AUTO_RUN_TAG=True.
@@ -134,6 +140,14 @@ RUN_FIELDNAMES = [
     "greedy_random_seed_used",
     "sampling_strategy_requested",
     "sampling_strategy_effective",
+    "crop_selection_mode_requested",
+    "crop_selection_mode_effective",
+    "crop_decision",
+    "crop_zero_tolerance",
+    "crop_lowest_multiplier",
+    "lowest_unpacked_y_for_crop",
+    "scaled_lowest_distance_for_crop",
+    "used_crop_height",
     "greedy_objective",
     "model_objective",
     "final_objective",
@@ -238,6 +252,20 @@ def strategy_slug(sampling_strategy: str) -> str:
     if sampling_strategy == "largest_area":
         return "largest"
     return "random"
+
+
+def normalize_crop_selection_mode(value: str) -> str:
+    v = str(value).strip().lower()
+    if v in {"fixed_height", "fixed", "default", "crop_height"}:
+        return "fixed_height"
+    if v in {
+        "unpacked_lowest_y",
+        "unpacked_lowest",
+        "lowest_unpacked_y",
+        "adaptive_lowest",
+    }:
+        return "unpacked_lowest_y"
+    raise ValueError(f"Unsupported crop selection mode: {value}")
 
 
 def resolve_solver_class(sampling_strategy: str):
@@ -376,6 +404,9 @@ def main() -> None:
         "base_random_seed": BASE_RANDOM_SEED,
         "unpack_last_n": int(UNPACK_LAST_N),
         "crop_height_ratio": float(CROP_HEIGHT_RATIO),
+        "crop_selection_mode": str(CROP_SELECTION_MODE),
+        "crop_zero_tolerance": float(CROP_ZERO_TOLERANCE),
+        "crop_lowest_multiplier": float(CROP_LOWEST_MULTIPLIER),
         "free_space_improvement": bool(FREE_SPACE_IMPROVEMENT),
         "solver_gap": float(SOLVER_GAP),
         "model_time_limit_sec": MODEL_TIME_LIMIT_SEC,
@@ -413,6 +444,11 @@ def main() -> None:
     print(
         "Algorithm selection: "
         f"greedy_order_strategy={GREEDY_ORDER_STRATEGY}, sampling_strategy={SAMPLING_STRATEGY}"
+    )
+    print(
+        "Crop selection: "
+        f"mode={CROP_SELECTION_MODE}, zero_tolerance={CROP_ZERO_TOLERANCE}, "
+        f"lowest_multiplier={CROP_LOWEST_MULTIPLIER}"
     )
     print(f"Run tag: requested={RUN_TAG}, effective={EFFECTIVE_RUN_TAG}")
     print(f"Results dir: {RESULTS_DIR.resolve()}")
@@ -501,6 +537,9 @@ def main() -> None:
             result = solver.solve(
                 unpack_last_n=UNPACK_LAST_N,
                 crop_height=CROP_HEIGHT_RATIO * HEIGHT,
+                crop_selection_mode=CROP_SELECTION_MODE,
+                crop_zero_tolerance=CROP_ZERO_TOLERANCE,
+                crop_lowest_multiplier=CROP_LOWEST_MULTIPLIER,
                 use_top_crop=True,
                 free_space_improvement=FREE_SPACE_IMPROVEMENT,
                 solver_gap=SOLVER_GAP,
@@ -547,6 +586,9 @@ def main() -> None:
             greedy_effective = normalize_greedy_order_strategy(
                 str(stats.get("greedy_order_strategy") or greedy_strategy)
             )
+            crop_mode_effective = normalize_crop_selection_mode(
+                str(stats.get("crop_selection_mode_effective") or CROP_SELECTION_MODE)
+            )
 
             run_row = {
                 "algorithm_id": algorithm_id,
@@ -566,6 +608,16 @@ def main() -> None:
                 "greedy_random_seed_used": stats.get("greedy_random_seed_used"),
                 "sampling_strategy_requested": sampling_strategy,
                 "sampling_strategy_effective": sampling_effective,
+                "crop_selection_mode_requested": str(CROP_SELECTION_MODE),
+                "crop_selection_mode_effective": crop_mode_effective,
+                "crop_decision": stats.get("crop_decision"),
+                "crop_zero_tolerance": to_float(stats.get("crop_zero_tolerance")),
+                "crop_lowest_multiplier": to_float(stats.get("crop_lowest_multiplier")),
+                "lowest_unpacked_y_for_crop": to_float(stats.get("lowest_unpacked_y_for_crop")),
+                "scaled_lowest_distance_for_crop": to_float(
+                    stats.get("scaled_lowest_distance_for_crop")
+                ),
+                "used_crop_height": to_float(stats.get("used_crop_height")),
                 "greedy_objective": greedy_obj,
                 "model_objective": model_obj,
                 "final_objective": final_obj,
