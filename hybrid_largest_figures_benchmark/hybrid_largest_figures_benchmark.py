@@ -183,7 +183,7 @@ def main() -> None:
         "base_random_seed": BASE_RANDOM_SEED,
         "unpack_last_n": int(UNPACK_LAST_N),
         "crop_height_ratio": float(CROP_HEIGHT_RATIO),
-        "free_space_improvement": bool(FREE_SPACE_IMPROVEMENT),
+        "free_space_improvement": FREE_SPACE_IMPROVEMENT,
         "solver_gap": float(SOLVER_GAP),
         "model_time_limit_sec": MODEL_TIME_LIMIT_SEC,
         "model_num_threads": MODEL_NUM_THREADS,

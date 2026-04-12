@@ -1,4 +1,5 @@
 ﻿from ortools.linear_solver import pywraplp
+import math
 from typing import Dict, Optional, Tuple
 
 from core.data import Data, Item
@@ -15,6 +16,7 @@ class Problem:
         solver_name: str = "SCIP",
         *,
         enable_output: bool = False,
+        objective_stop_value: Optional[float] = None,
         relative_gap: Optional[float] = None,
         time_limit_sec: Optional[float] = None,
         stop_after_first_solution: bool = False,
@@ -27,6 +29,7 @@ class Problem:
             raise RuntimeError(f"Failed to create solver '{solver_name}'")
 
         self.enable_output = bool(enable_output)
+        self.objective_stop_value = objective_stop_value
         self.relative_gap = relative_gap
         self.time_limit_sec = time_limit_sec
         self.stop_after_first_solution = bool(stop_after_first_solution)
@@ -240,6 +243,10 @@ class Problem:
         params = [f"parallel/maxnthreads = {threads}"]
         if self.relative_gap is not None:
             params.append(f"limits/gap = {max(0.0, float(self.relative_gap))}")
+        if self.objective_stop_value is not None:
+            objective_stop = float(self.objective_stop_value)
+            if math.isfinite(objective_stop):
+                params.append(f"limits/objectivestop = {objective_stop}")
         if self.stop_after_first_solution:
             params.append("limits/solutions = 1")
         if not self.enable_output:

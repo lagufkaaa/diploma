@@ -44,6 +44,7 @@ S_END = 20
 UNPACK_LAST_N = 5
 CROP_HEIGHT_RATIO = 1.0 / 3.0
 FREE_SPACE_IMPROVEMENT = True
+EARLY_STOP_FREE_SPACE_IMPROVEMENT = None
 SOLVER_GAP = 1.0
 MODEL_TIME_LIMIT_SEC = 7200
 MODEL_NUM_THREADS = None
@@ -189,6 +190,7 @@ def build_detailed_s_text(
     lines.append(f"unpack_last_n: {UNPACK_LAST_N}")
     lines.append(f"crop_height_ratio: {CROP_HEIGHT_RATIO}")
     lines.append(f"free_space_improvement: {FREE_SPACE_IMPROVEMENT}")
+    lines.append(f"early_stop_free_space_improvement: {EARLY_STOP_FREE_SPACE_IMPROVEMENT}")
     lines.append(f"solver_gap: {SOLVER_GAP}")
     lines.append(f"model_time_limit_sec: {MODEL_TIME_LIMIT_SEC}")
     lines.append(f"model_num_threads: {MODEL_NUM_THREADS}")
@@ -290,6 +292,7 @@ def main() -> None:
             crop_height=CROP_HEIGHT_RATIO * HEIGHT,
             use_top_crop=True,
             free_space_improvement=FREE_SPACE_IMPROVEMENT,
+            early_stop_free_space_improvement=EARLY_STOP_FREE_SPACE_IMPROVEMENT,
             solver_gap=SOLVER_GAP,
             model_time_limit_sec=MODEL_TIME_LIMIT_SEC,
             model_num_threads=MODEL_NUM_THREADS,

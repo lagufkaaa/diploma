@@ -39,7 +39,7 @@ HEIGHT = 6000.0
 WIDTH = 6000.0
 SOLVER_NAME = "SCIP"
 
-NUM_RUNS = 1
+NUM_RUNS = 20
 BASE_RANDOM_SEED: Optional[int] = None
 
 UNPACK_LAST_N = 3
@@ -50,14 +50,17 @@ CROP_HEIGHT_RATIO = 1.0 / 3.0
 CROP_SELECTION_MODE = "unpacked_lowest_y"
 CROP_ZERO_TOLERANCE = 1e-6
 CROP_LOWEST_MULTIPLIER = 1.5
-FREE_SPACE_IMPROVEMENT = True
-SOLVER_GAP = 1.0
+# True requires any positive improvement; a positive number means percentage points
+# of required free-space improvement; anything else disables the constraint.
+FREE_SPACE_IMPROVEMENT = False
+EARLY_STOP_FREE_SPACE_IMPROVEMENT = 3
+SOLVER_GAP = 0.5
 MODEL_TIME_LIMIT_SEC: Optional[float] = 3600.0
 MODEL_NUM_THREADS: Optional[int] = None
 STOP_AFTER_FIRST_SOLUTION = False
 MODEL_ENABLE_OUTPUT = True
 
-RANDOM_ITERATIONS = 1
+RANDOM_ITERATIONS = 5
 RANDOM_SAMPLE_SIZE = 7
 MIN_UNPACKED_IN_SAMPLE = 0
 
@@ -74,7 +77,7 @@ GREEDY_SHARED_RESULT_CACHE = {}
 # - greedy order strategy: deterministic | random
 # - model sampling strategy: random | smallest | largest
 GREEDY_ORDER_STRATEGY = "random"
-SAMPLING_STRATEGY = "smallest"
+SAMPLING_STRATEGY = "random"
 
 # Run-output settings.
 # For parallel runs set different RUN_TAG values manually OR keep AUTO_RUN_TAG=True.
@@ -407,7 +410,8 @@ def main() -> None:
         "crop_selection_mode": str(CROP_SELECTION_MODE),
         "crop_zero_tolerance": float(CROP_ZERO_TOLERANCE),
         "crop_lowest_multiplier": float(CROP_LOWEST_MULTIPLIER),
-        "free_space_improvement": bool(FREE_SPACE_IMPROVEMENT),
+        "free_space_improvement": FREE_SPACE_IMPROVEMENT,
+        "early_stop_free_space_improvement": EARLY_STOP_FREE_SPACE_IMPROVEMENT,
         "solver_gap": float(SOLVER_GAP),
         "model_time_limit_sec": MODEL_TIME_LIMIT_SEC,
         "model_num_threads": MODEL_NUM_THREADS,
@@ -542,6 +546,7 @@ def main() -> None:
                 crop_lowest_multiplier=CROP_LOWEST_MULTIPLIER,
                 use_top_crop=True,
                 free_space_improvement=FREE_SPACE_IMPROVEMENT,
+                early_stop_free_space_improvement=EARLY_STOP_FREE_SPACE_IMPROVEMENT,
                 solver_gap=SOLVER_GAP,
                 model_time_limit_sec=MODEL_TIME_LIMIT_SEC,
                 model_num_threads=MODEL_NUM_THREADS,

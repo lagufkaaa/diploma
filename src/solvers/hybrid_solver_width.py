@@ -9,6 +9,7 @@ from shapely import affinity
 from shapely.geometry import Polygon
 
 from core.data import Data, Item
+from solvers.free_space_improvement import resolve_free_space_improvement_requirement
 from solvers.greedy_solver import GreedySolver
 from solvers.hybrid_hard_timeout import solve_hybrid_problem_with_hard_timeout
 from solvers.model_hybrid import Problem as HybridProblem
@@ -80,7 +81,8 @@ class HybridSolverWidth:
         unpack_last_n: int,
         crop_width: float,
         use_right_crop: bool = True,
-        free_space_improvement: bool = False,
+        free_space_improvement: object = False,
+        early_stop_free_space_improvement: object = None,
         solver_gap: float = 1.0,
         model_time_limit_sec: Optional[float] = None,
         model_num_threads: Optional[int] = None,
@@ -236,22 +238,27 @@ class HybridSolverWidth:
         greedy_obj = float(greedy_results.get("objective_value") or 0.0)
         greedy_free = self._free_space_percent(greedy_obj)
 
-        require_improvement = bool(free_space_improvement)
         container_area = self.width * self.height
-        min_total_objective = None
-        min_improvement_area = 0.0
-        target_free_space = None
-        if require_improvement and container_area > 0.0:
-            # "Any improvement" is enforced as a tiny positive area delta over greedy.
-            # Use a scale-aware epsilon and cap it by the free area left in the container.
-            eps_area = max(1e-6, float(container_area) * 1e-12)
-            slack_by_capacity = max(0.0, float(container_area) - float(greedy_obj))
-            min_improvement_area = min(eps_area, slack_by_capacity)
-            if min_improvement_area > 1e-12:
-                min_total_objective = float(greedy_obj) + float(min_improvement_area)
-                target_free_space = self._free_space_percent(min_total_objective)
-            else:
-                target_free_space = float(greedy_free)
+        improvement_requirement = resolve_free_space_improvement_requirement(
+            free_space_improvement,
+            greedy_objective=greedy_obj,
+            container_area=container_area,
+        )
+        early_stop_requirement = resolve_free_space_improvement_requirement(
+            early_stop_free_space_improvement,
+            greedy_objective=greedy_obj,
+            container_area=container_area,
+        )
+        require_improvement = bool(improvement_requirement.require_improvement)
+        min_total_objective = improvement_requirement.min_total_objective
+        min_improvement_area = improvement_requirement.min_improvement_area
+        target_free_space = improvement_requirement.target_free_space_percent
+        early_stop_total_objective = early_stop_requirement.min_total_objective
+        early_stop_target_free_space = early_stop_requirement.target_free_space_percent
+        early_stop_enabled = bool(
+            early_stop_requirement.require_improvement
+            and early_stop_total_objective is not None
+        )
 
         requested_sample_size = (
             10 if random_sample_size is None else max(0, int(random_sample_size))
@@ -271,6 +278,10 @@ class HybridSolverWidth:
                 f"sampling config: pool_ids will be built, sample_size={sample_size}, "
                 f"iterations={random_iterations}, seed={random_seed_used}, "
                 f"require_improvement={require_improvement}, "
+                f"improvement_mode={improvement_requirement.mode}, "
+                f"required_improvement_percent={improvement_requirement.required_improvement_percent}, "
+                f"early_stop_mode={early_stop_requirement.mode}, "
+                f"early_stop_required_improvement_percent={early_stop_requirement.required_improvement_percent}, "
                 f"min_unpacked_in_sample={min_unpacked_requested}"
             ),
             force=True,
@@ -333,12 +344,18 @@ class HybridSolverWidth:
                 local_min_candidate = max(0.0, float(min_total_objective) - float(fixed_area))
                 if local_min_candidate > 1e-9:
                     local_min_objective = float(local_min_candidate)
+            local_objective_stop = None
+            if early_stop_total_objective is not None:
+                local_stop_candidate = max(0.0, float(early_stop_total_objective) - float(fixed_area))
+                if local_stop_candidate > 1e-9:
+                    local_objective_stop = float(local_stop_candidate)
             _hybrid_log(
                 (
                     f"iter {iter_idx + 1}/{random_iterations}: model_items={len(model_item_ids)} "
                     f"(sampled={len(sampled_item_ids)}, forced_window={forced_by_window}), "
                     f"fixed_records={len(fixed_records)}, "
                     f"fixed_area={fixed_area:.3f}, local_min_objective={local_min_objective}, "
+                    f"local_objective_stop={local_objective_stop}, "
                     f"local_max_objective={local_max_objective:.3f}"
                 ),
                 force=True,
@@ -394,6 +411,7 @@ class HybridSolverWidth:
 
             def _solve_local_problem_once(
                 min_objective_value: Optional[float],
+                objective_stop_value: Optional[float],
                 *,
                 run_label: str,
             ) -> dict:
@@ -403,10 +421,16 @@ class HybridSolverWidth:
                     if min_objective_value is None
                     else f"{float(min_objective_value):.6f}"
                 )
+                objective_stop_text = (
+                    "None"
+                    if objective_stop_value is None
+                    else f"{float(objective_stop_value):.6f}"
+                )
                 _hybrid_log(
                     (
                         f"{iter_label}: build model (Problem init) start "
-                        f"[run={run_label}, min_objective={min_obj_text}]"
+                        f"[run={run_label}, min_objective={min_obj_text}, "
+                        f"objective_stop={objective_stop_text}]"
                     ),
                     force=True,
                 )
@@ -423,6 +447,7 @@ class HybridSolverWidth:
                     packing_x_min=packing_x_min if use_right_crop else None,
                     packing_x_max=packing_x_max if use_right_crop else None,
                     min_objective_value=min_objective_value,
+                    objective_stop_value=objective_stop_value,
                     relative_gap=solver_gap,
                     time_limit_sec=model_time_limit_sec,
                     num_threads=model_num_threads,
@@ -476,6 +501,7 @@ class HybridSolverWidth:
 
             raw_model_results = _solve_local_problem_once(
                 local_min_objective,
+                local_objective_stop,
                 run_label="primary",
             )
             model_results = self._assemble_full_solution(
@@ -646,6 +672,21 @@ class HybridSolverWidth:
                     "free_space_improvement_percent": final_improvement,
                     "target_free_space_percent": target_free_space,
                     "require_improvement": bool(require_improvement),
+                    "free_space_improvement_mode": improvement_requirement.mode,
+                    "required_free_space_improvement_percent": (
+                        improvement_requirement.required_improvement_percent
+                    ),
+                    "early_stop_enabled": bool(early_stop_enabled),
+                    "early_stop_improvement_mode": early_stop_requirement.mode,
+                    "early_stop_required_improvement_percent": (
+                        early_stop_requirement.required_improvement_percent
+                    ),
+                    "early_stop_target_objective_value": (
+                        float(early_stop_total_objective)
+                        if early_stop_total_objective is not None
+                        else None
+                    ),
+                    "early_stop_target_free_space_percent": early_stop_target_free_space,
                     "min_improvement_area": float(min_improvement_area),
                     "greedy_time_sec": greedy_time,
                     "model_time_sec": model_time,
@@ -701,6 +742,21 @@ class HybridSolverWidth:
                 "free_space_improvement_percent": free_space_improvement_abs,
                 "target_free_space_percent": target_free_space,
                 "require_improvement": bool(require_improvement),
+                "free_space_improvement_mode": improvement_requirement.mode,
+                "required_free_space_improvement_percent": (
+                    improvement_requirement.required_improvement_percent
+                ),
+                "early_stop_enabled": bool(early_stop_enabled),
+                "early_stop_improvement_mode": early_stop_requirement.mode,
+                "early_stop_required_improvement_percent": (
+                    early_stop_requirement.required_improvement_percent
+                ),
+                "early_stop_target_objective_value": (
+                    float(early_stop_total_objective)
+                    if early_stop_total_objective is not None
+                    else None
+                ),
+                "early_stop_target_free_space_percent": early_stop_target_free_space,
                 "min_improvement_area": float(min_improvement_area),
                 "greedy_time_sec": greedy_time,
                 "model_time_sec": model_time,

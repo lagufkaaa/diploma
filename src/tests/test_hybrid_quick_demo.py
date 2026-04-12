@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 
 SRC_DIR = Path(__file__).resolve().parents[1]
@@ -100,3 +101,36 @@ def test_hybrid_vertical_crop_demo_improves_and_visualizes():
     _assert_hybrid_improves(result)
     stats = result.get("hybrid_stats", {})
     assert int(stats.get("min_unpacked_in_sample", -1)) == 2
+
+
+def test_hybrid_vertical_crop_demo_accepts_early_stop_threshold():
+    data = Data(_build_demo_rectangles(), R=1, parallel_nfp=False)
+    solver = HybridSolver(
+        data,
+        height=DEMO_HEIGHT,
+        width=DEMO_WIDTH,
+        S=DEMO_S,
+    )
+
+    result = solver.solve(
+        unpack_last_n=4,
+        crop_height=2 * DEMO_HEIGHT / 3,
+        use_top_crop=True,
+        free_space_improvement=False,
+        early_stop_free_space_improvement=2.0,
+        solver_gap=0.0,
+        model_time_limit_sec=8.0,
+        stop_after_first_solution=False,
+        model_enable_output=False,
+        random_iterations=1,
+        random_seed=7,
+        random_sample_size=9,
+        min_unpacked_in_sample=2,
+    )
+
+    stats = result.get("hybrid_stats", {})
+    assert stats.get("early_stop_enabled") is True
+    assert stats.get("early_stop_improvement_mode") == "percent"
+    assert stats.get("early_stop_required_improvement_percent") == pytest.approx(2.0)
+    assert stats.get("early_stop_target_objective_value") is not None
+    assert stats.get("early_stop_target_free_space_percent") is not None

@@ -1,0 +1,31 @@
+hybrid algorithms benchmark summary
+created_at: 2026-04-12T00:48:58
+algorithms_total: 1
+
+algorithm: greedy_random__sampling_random
+greedy_order_strategy: random
+sampling_strategy: random
+quality_vs_greedy
+runs_total: 20
+runs_with_final_objective: 20
+avg_greedy_objective: 23921663.149667144
+avg_final_objective: 23921663.149667144
+avg_final_minus_greedy: 0.0
+min_final_minus_greedy: 0.0
+max_final_minus_greedy: 0.0
+improvement_frequency
+improved_runs_count: 0
+improved_runs_rate_percent: 0.00
+robustness_to_randomness
+final_objective_stddev: 1557331.416936832
+final_objective_cv_percent: 6.51013019953214
+final_objective_min: 20887642.065019425
+final_objective_max: 26584502.603468165
+final_objective_range: 5696860.53844874
+iteration_level
+iterations_total_logged: 100
+iterations_feasible_count: 100
+iterations_feasible_rate_percent: 100.00
+iterations_improved_vs_greedy_count: 0
+iterations_improved_vs_greedy_rate_percent: 0.00
+avg_iteration_minus_greedy: -4630124.416959019
