@@ -158,5 +158,4 @@ model_formulation.tex
 .idea/workspace.xml
 .gitignore
 .gitignore
-
-cache/nfp/*.sqlite3
+cache/nfp/nfp_cache.sqlite3

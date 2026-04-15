@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import MutableMapping, Optional
 
 import numpy as np
+import re
 
 GREEDY_RESULT_CACHE_VERSION = "greedy_result_v1"
 DEFAULT_GREEDY_CACHE_DIR = Path("cache") / "greedy"
@@ -44,9 +45,15 @@ def default_greedy_result_cache_path() -> Path:
     return _normalize_cache_path(_project_root() / DEFAULT_GREEDY_CACHE_DIR / DEFAULT_GREEDY_CACHE_FILE)
 
 
-def resolve_greedy_result_cache_path(path: Optional[str]) -> Path:
+def resolve_greedy_result_cache_path(path: Optional[str], identifier: Optional[str] = None) -> Path:
     if path:
         return _normalize_cache_path(Path(path))
+
+    if identifier:
+        safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(identifier))
+        p = _project_root() / DEFAULT_GREEDY_CACHE_DIR / f"greedy_result_cache_{safe}.sqlite3"
+        return _normalize_cache_path(p)
+
     return default_greedy_result_cache_path()
 
 

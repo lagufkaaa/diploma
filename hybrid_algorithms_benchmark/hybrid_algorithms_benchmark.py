@@ -32,11 +32,11 @@ OUTPUT_DIR = ROOT_DIR / "hybrid_algorithms_benchmark"
 # ============================================================
 # Benchmark configuration (algorithm combinations)
 # ============================================================
-DATA_FILE = DATA_DIR / "car_mats_2.txt"
+DATA_FILE = DATA_DIR / "car_mats_4.txt"
 R = 4
 S = 10
-HEIGHT = 6000.0
-WIDTH = 6000.0
+HEIGHT = 45000.0
+WIDTH = 45000.0
 SOLVER_NAME = "SCIP"
 
 NUM_RUNS = 20
@@ -395,6 +395,18 @@ def main() -> None:
 
     algorithm_variants = build_algorithm_variants()
 
+    # Determine effective greedy result cache path without reassigning module-level var
+    effective_greedy_result_cache_path = GREEDY_RESULT_CACHE_PATH
+    if effective_greedy_result_cache_path is None:
+        try:
+            from solvers.greedy_result_cache import resolve_greedy_result_cache_path
+
+            effective_greedy_result_cache_path = str(
+                resolve_greedy_result_cache_path(None, identifier=DATA_FILE.stem)
+            )
+        except Exception:
+            effective_greedy_result_cache_path = None
+
     config = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "data_file": str(DATA_FILE.resolve()),
@@ -424,7 +436,7 @@ def main() -> None:
         "hybrid_enable_output": bool(HYBRID_ENABLE_OUTPUT),
         "save_images": bool(SAVE_IMAGES),
         "greedy_use_result_cache": bool(GREEDY_USE_RESULT_CACHE),
-        "greedy_result_cache_path": GREEDY_RESULT_CACHE_PATH,
+        "greedy_result_cache_path": effective_greedy_result_cache_path,
         "greedy_result_cache_ttl_days": GREEDY_RESULT_CACHE_TTL_DAYS,
         "greedy_order_strategy": GREEDY_ORDER_STRATEGY,
         "sampling_strategy": SAMPLING_STRATEGY,
@@ -465,6 +477,9 @@ def main() -> None:
         R,
         parallel_nfp=False,
         shared_memory_cache=SHARED_NFP_CACHE,
+        cache_identifier=DATA_FILE.stem,
+        enable_progress_log=True,
+        log_interval_sec=1.0,
     )
 
     run_rows: List[Dict[str, Any]] = []
@@ -529,7 +544,7 @@ def main() -> None:
                 solver_name=SOLVER_NAME,
                 greedy_enable_output=GREEDY_ENABLE_OUTPUT,
                 greedy_use_result_cache=effective_greedy_use_result_cache,
-                greedy_result_cache_path=GREEDY_RESULT_CACHE_PATH,
+                greedy_result_cache_path=effective_greedy_result_cache_path,
                 greedy_result_cache_ttl_days=GREEDY_RESULT_CACHE_TTL_DAYS,
                 greedy_shared_result_cache=GREEDY_SHARED_RESULT_CACHE,
                 greedy_order_strategy=greedy_strategy,

@@ -251,11 +251,24 @@ def main() -> None:
     )
     print("Building Data once (as in test_hybrid_basic)...")
 
+    # Determine effective greedy result cache path without reassigning module-level var
+    effective_greedy_result_cache_path = GREEDY_RESULT_CACHE_PATH
+    if effective_greedy_result_cache_path is None:
+        try:
+            from solvers.greedy_result_cache import resolve_greedy_result_cache_path
+
+            effective_greedy_result_cache_path = str(
+                resolve_greedy_result_cache_path(None, identifier=DATA_FILE.stem)
+            )
+        except Exception:
+            effective_greedy_result_cache_path = None
+
     data = Data(
         items,
         R,
         parallel_nfp=False,
         shared_memory_cache=SHARED_NFP_CACHE,
+        cache_identifier=DATA_FILE.stem,
     )
 
     all_results = []
@@ -279,7 +292,7 @@ def main() -> None:
             greedy_enable_output=GREEDY_ENABLE_OUTPUT,
             hybrid_enable_output=HYBRID_ENABLE_OUTPUT,
             greedy_use_result_cache=GREEDY_USE_RESULT_CACHE,
-            greedy_result_cache_path=GREEDY_RESULT_CACHE_PATH,
+            greedy_result_cache_path=effective_greedy_result_cache_path,
             greedy_result_cache_ttl_days=GREEDY_RESULT_CACHE_TTL_DAYS,
             greedy_shared_result_cache=GREEDY_SHARED_RESULT_CACHE,
             greedy_order_strategy=greedy_order_strategy,

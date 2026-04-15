@@ -1,31 +1,31 @@
 hybrid algorithms benchmark summary
-created_at: 2026-04-13T03:55:32
+created_at: 2026-04-14T04:54:59
 algorithms_total: 1
 
 algorithm: greedy_random__sampling_random
 greedy_order_strategy: random
 sampling_strategy: random
 quality_vs_greedy
-runs_total: 8
-runs_with_final_objective: 8
-avg_greedy_objective: 24433119.196729667
-avg_final_objective: 24657792.04969473
-avg_final_minus_greedy: 224672.85296506248
+runs_total: 20
+runs_with_final_objective: 20
+avg_greedy_objective: 24186138.013081506
+avg_final_objective: 24292682.332711425
+avg_final_minus_greedy: 106544.31962992027
 min_final_minus_greedy: 0.0
 max_final_minus_greedy: 1219406.303411875
 improvement_frequency
-improved_runs_count: 3
-improved_runs_rate_percent: 37.50
+improved_runs_count: 7
+improved_runs_rate_percent: 35.00
 robustness_to_randomness
-final_objective_stddev: 1718290.4120523748
-final_objective_cv_percent: 6.968549368043063
+final_objective_stddev: 1632437.0696714593
+final_objective_cv_percent: 6.7198716358847435
 final_objective_min: 21393324.687407512
 final_objective_max: 27008183.480838392
 final_objective_range: 5614858.79343088
 iteration_level
-iterations_total_logged: 40
-iterations_feasible_count: 40
-iterations_feasible_rate_percent: 100.00
-iterations_improved_vs_greedy_count: 8
-iterations_improved_vs_greedy_rate_percent: 20.00
-avg_iteration_minus_greedy: -2061974.7541752688
+iterations_total_logged: 100
+iterations_feasible_count: 90
+iterations_feasible_rate_percent: 90.00
+iterations_improved_vs_greedy_count: 12
+iterations_improved_vs_greedy_rate_percent: 12.00
+avg_iteration_minus_greedy: -2208875.68965445

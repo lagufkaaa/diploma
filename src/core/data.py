@@ -22,6 +22,8 @@ ENV_CACHE_PATH = "DIPLOMA_NFP_CACHE_PATH"
 ENV_CACHE_DIR = "DIPLOMA_CACHE_DIR"
 _GLOBAL_NFP_MEMORY_CACHE: Dict[str, bytes] = {}
 
+import re
+
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[2]
@@ -54,6 +56,25 @@ def _default_cache_path() -> Path:
         return _normalize_cache_path(Path(env_cache_dir))
 
     return _normalize_cache_path(_project_root() / DEFAULT_CACHE_DIR / DEFAULT_CACHE_FILE)
+
+
+def resolve_nfp_cache_path(path: Optional[str], identifier: Optional[str] = None) -> Path:
+    """
+    Resolve an NFP cache path.
+    - If `path` is provided, normalize and return it.
+    - If `identifier` is provided and `path` is None, create a per-identifier
+      cache file under the default cache dir: `nfp_cache_{identifier}.sqlite3`.
+    - Otherwise return the default cache path.
+    """
+    if path:
+        return _normalize_cache_path(Path(path))
+
+    if identifier:
+        safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(identifier))
+        p = _project_root() / DEFAULT_CACHE_DIR / f"nfp_cache_{safe}.sqlite3"
+        return _normalize_cache_path(p)
+
+    return _default_cache_path()
 
 
 def _points_signature(points: np.ndarray) -> str:
@@ -142,6 +163,7 @@ class _NFPDiskCache:
     def close(self):
         self.conn.close()
 
+
 class Data:
     def __init__(
         self,
@@ -152,9 +174,12 @@ class Data:
         nfp_workers: Optional[int] = None,
         use_cache: bool = True,
         cache_path: Optional[str] = None,
+        cache_identifier: Optional[str] = None,
         cache_ttl_days: Optional[float] = None,
         use_memory_cache: bool = True,
         shared_memory_cache: Optional[MutableMapping[str, bytes]] = None,
+        enable_progress_log: bool = False,
+        log_interval_sec: float = 2.0,
     ):
         self.R = R
         self.angle = 360 / R
@@ -162,7 +187,7 @@ class Data:
         self.parallel_nfp = bool(parallel_nfp)
         self.nfp_workers = self._resolve_workers(nfp_workers)
         self.use_cache = bool(use_cache)
-        self.cache_path = _normalize_cache_path(Path(cache_path)) if cache_path else _default_cache_path()
+        self.cache_path = resolve_nfp_cache_path(cache_path, cache_identifier)
         self.cache_ttl_seconds = (
             None if cache_ttl_days is None else max(0.0, float(cache_ttl_days) * 24.0 * 3600.0)
         )
@@ -174,7 +199,11 @@ class Data:
         )
         if not self.use_memory_cache:
             self.memory_cache = None
-        
+
+        # Progress logging for long-running NFP build
+        self.enable_progress_log = bool(enable_progress_log)
+        self.log_interval_sec = max(0.1, float(log_interval_sec))
+
         if items and isinstance(items[0], Item):
             items_with_rotation, dict_rot = self._get_items_with_rotation(items)
         else:
@@ -211,6 +240,9 @@ class Data:
         signatures = [_points_signature(it.points) for it in self.items]
 
         try:
+            last_log_ts = started - self.log_interval_sec
+            estimated_total_pairs = max(0, self.N * (self.N - 1))
+
             for i, it_i in enumerate(self.items):
                 for j, it_j in enumerate(self.items):
                     if it_j.id == it_i.id:
@@ -240,11 +272,30 @@ class Data:
                     cache_misses += 1
                     pending_by_i.setdefault(i, []).append((j, points_lists[j], cache_key))
 
+                # Periodic progress log while scanning cache/miss status
+                if self.enable_progress_log:
+                    now = time.perf_counter()
+                    if (now - last_log_ts) >= self.log_interval_sec:
+                        print(
+                            f"[nfp] scan progress: i={i+1}/{self.N}, total_pairs={total_pairs}/{estimated_total_pairs}, "
+                            f"mem_hits={memory_cache_hits}, disk_hits={disk_cache_hits}, misses={cache_misses}",
+                            flush=True,
+                        )
+                        last_log_ts = now
+
             payloads = []
             for i, jobs in pending_by_i.items():
                 payloads.append((i, points_lists[i], jobs))
 
             computed_pairs = 0
+            total_to_compute = cache_misses
+            if self.enable_progress_log:
+                print(
+                    f"[nfp] compute phase: payloads={len(payloads)}, to_compute={total_to_compute}, "
+                    f"parallel={self.parallel_nfp}, workers={self.nfp_workers}",
+                    flush=True,
+                )
+
             if payloads:
                 if self.parallel_nfp and self.nfp_workers > 1 and len(payloads) > 1:
                     with ProcessPoolExecutor(max_workers=self.nfp_workers) as executor:
@@ -261,6 +312,14 @@ class Data:
                                     cache_rows_to_write.append(
                                         (cache_key, sqlite3.Binary(geom_wkb), now_ts, compute_ms)
                                     )
+                            if self.enable_progress_log:
+                                now = time.perf_counter()
+                                if (now - last_log_ts) >= self.log_interval_sec:
+                                    print(
+                                        f"[nfp] compute progress: computed_pairs={computed_pairs}/{total_to_compute}",
+                                        flush=True,
+                                    )
+                                    last_log_ts = now
                 else:
                     for payload in payloads:
                         rows = _compute_nfp_batch(payload)
@@ -274,9 +333,22 @@ class Data:
                                 cache_rows_to_write.append(
                                     (cache_key, sqlite3.Binary(geom_wkb), now_ts, compute_ms)
                                 )
+                        if self.enable_progress_log:
+                            now = time.perf_counter()
+                            if (now - last_log_ts) >= self.log_interval_sec:
+                                print(
+                                    f"[nfp] compute progress: computed_pairs={computed_pairs}/{total_to_compute}",
+                                    flush=True,
+                                )
+                                last_log_ts = now
 
             if cache is not None and cache_rows_to_write:
                 cache.put_many(cache_rows_to_write)
+                if self.enable_progress_log:
+                    print(
+                        f"[nfp] wrote {len(cache_rows_to_write)} rows to disk cache: {self.cache_path}",
+                        flush=True,
+                    )
 
             for i, it_i in enumerate(self.items):
                 nfp_dict = {}
@@ -301,6 +373,15 @@ class Data:
                 "workers_used": self.nfp_workers if self.parallel_nfp else 1,
                 "elapsed_sec": time.perf_counter() - started,
             }
+            if self.enable_progress_log:
+                print(
+                    (
+                        f"[nfp] build finished: pairs_total={total_pairs}, computed={computed_pairs}, "
+                        f"mem_hits={memory_cache_hits}, disk_hits={disk_cache_hits}, misses={cache_misses}, "
+                        f"elapsed_sec={self.nfp_stats['elapsed_sec']:.2f}"
+                    ),
+                    flush=True,
+                )
         finally:
             if cache is not None:
                 cache.close()

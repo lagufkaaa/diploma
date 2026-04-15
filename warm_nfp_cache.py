@@ -110,6 +110,7 @@ def main() -> int:
         nfp_workers=args.workers,
         use_cache=True,
         cache_path=args.cache_path,
+        cache_identifier=file_path.stem,
         cache_ttl_days=args.cache_ttl_days,
         use_memory_cache=not bool(args.no_memory_cache),
     )
