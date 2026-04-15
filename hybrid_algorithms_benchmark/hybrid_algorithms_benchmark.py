@@ -32,7 +32,7 @@ OUTPUT_DIR = ROOT_DIR / "hybrid_algorithms_benchmark"
 # ============================================================
 # Benchmark configuration (algorithm combinations)
 # ============================================================
-DATA_FILE = DATA_DIR / "car_mats_4.txt"
+DATA_FILE = DATA_DIR / "car_mats_7.txt"
 R = 4
 S = 10
 HEIGHT = 45000.0
