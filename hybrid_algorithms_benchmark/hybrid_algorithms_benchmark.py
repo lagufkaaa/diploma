@@ -41,6 +41,10 @@ SOLVER_NAME = "SCIP"
 
 NUM_RUNS = 20
 BASE_RANDOM_SEED: Optional[int] = None
+# Overall benchmark wall-time limit in hours.
+# None disables this criterion. If set, the benchmark runs until the deadline:
+# it may stop before NUM_RUNS or continue beyond NUM_RUNS while time remains.
+BENCHMARK_WALL_TIME_LIMIT_HOURS: Optional[float] = 8
 
 UNPACK_LAST_N = 3
 CROP_HEIGHT_RATIO = 1.0 / 3.0
@@ -60,7 +64,7 @@ MODEL_NUM_THREADS: Optional[int] = None
 STOP_AFTER_FIRST_SOLUTION = False
 MODEL_ENABLE_OUTPUT = True
 # SCIP heuristic tuning preset: default | mild | aggressive | off
-SCIP_HEURISTICS_FOCUS = "default"
+SCIP_HEURISTICS_FOCUS = "mild"
 
 RANDOM_ITERATIONS = 5
 RANDOM_SAMPLE_SIZE = 7
@@ -223,6 +227,12 @@ def safe_pstdev(values: List[float]) -> Optional[float]:
     return float(pstdev(values))
 
 
+def normalize_optional_nonnegative_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    return max(0.0, float(value))
+
+
 def write_csv(path: Path, rows: List[Dict[str, Any]], fieldnames: List[str]) -> None:
     with path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -296,7 +306,11 @@ def build_algorithm_variants() -> List[Dict[str, str]]:
     ]
 
 
-def build_summary_text(run_rows: List[Dict[str, Any]], iteration_rows: List[Dict[str, Any]]) -> str:
+def build_summary_text(
+    run_rows: List[Dict[str, Any]],
+    iteration_rows: List[Dict[str, Any]],
+    summary_metadata: Optional[Dict[str, Any]] = None,
+) -> str:
     by_algorithm_runs: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     by_algorithm_iterations: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
 
@@ -308,6 +322,19 @@ def build_summary_text(run_rows: List[Dict[str, Any]], iteration_rows: List[Dict
     lines: List[str] = []
     lines.append("hybrid algorithms benchmark summary")
     lines.append(f"created_at: {datetime.now().isoformat(timespec='seconds')}")
+    if summary_metadata:
+        for key in [
+            "benchmark_started_at",
+            "benchmark_elapsed_wall_sec",
+            "benchmark_wall_time_limit_hours",
+            "benchmark_wall_time_limit_sec",
+            "benchmark_time_limit_reached",
+            "benchmark_stop_reason",
+            "num_runs_target_per_algorithm",
+            "algorithm_variants_configured",
+            "runs_completed_total",
+        ]:
+            lines.append(f"{key}: {summary_metadata.get(key)}")
     lines.append(f"algorithms_total: {len(by_algorithm_runs)}")
     lines.append("")
 
@@ -382,10 +409,14 @@ def build_summary_text(run_rows: List[Dict[str, Any]], iteration_rows: List[Dict
 def persist_intermediate(
     run_rows: List[Dict[str, Any]],
     iteration_rows: List[Dict[str, Any]],
+    summary_metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
     write_csv(RESULTS_DIR / "run_metrics.csv", run_rows, RUN_FIELDNAMES)
     write_csv(RESULTS_DIR / "iteration_metrics.csv", iteration_rows, ITERATION_FIELDNAMES)
-    (RESULTS_DIR / "summary.txt").write_text(build_summary_text(run_rows, iteration_rows), encoding="utf-8")
+    (RESULTS_DIR / "summary.txt").write_text(
+        build_summary_text(run_rows, iteration_rows, summary_metadata),
+        encoding="utf-8",
+    )
 
 
 def main() -> None:
@@ -396,6 +427,31 @@ def main() -> None:
         IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
     algorithm_variants = build_algorithm_variants()
+    benchmark_started_at = datetime.now().isoformat(timespec="seconds")
+    benchmark_started_perf = time.perf_counter()
+    benchmark_wall_time_limit_hours = normalize_optional_nonnegative_float(
+        BENCHMARK_WALL_TIME_LIMIT_HOURS
+    )
+    benchmark_wall_time_limit_sec = (
+        None
+        if benchmark_wall_time_limit_hours is None
+        else float(benchmark_wall_time_limit_hours) * 3600.0
+    )
+    benchmark_deadline_perf = (
+        None
+        if benchmark_wall_time_limit_sec is None
+        else benchmark_started_perf + float(benchmark_wall_time_limit_sec)
+    )
+    benchmark_time_limit_reached = False
+    benchmark_stop_reason = "in_progress"
+
+    def benchmark_elapsed_wall_sec() -> float:
+        return float(time.perf_counter() - benchmark_started_perf)
+
+    def benchmark_remaining_wall_sec() -> Optional[float]:
+        if benchmark_deadline_perf is None:
+            return None
+        return max(0.0, float(benchmark_deadline_perf - time.perf_counter()))
 
     # Determine effective greedy result cache path without reassigning module-level var
     effective_greedy_result_cache_path = GREEDY_RESULT_CACHE_PATH
@@ -419,6 +475,8 @@ def main() -> None:
         "solver_name": SOLVER_NAME,
         "num_runs_per_algorithm": int(NUM_RUNS),
         "base_random_seed": BASE_RANDOM_SEED,
+        "benchmark_wall_time_limit_hours": benchmark_wall_time_limit_hours,
+        "benchmark_wall_time_limit_sec": benchmark_wall_time_limit_sec,
         "unpack_last_n": int(UNPACK_LAST_N),
         "crop_height_ratio": float(CROP_HEIGHT_RATIO),
         "crop_selection_mode": str(CROP_SELECTION_MODE),
@@ -474,6 +532,13 @@ def main() -> None:
     print(f"Results dir: {RESULTS_DIR.resolve()}")
     print(f"Algorithm variants: {len(algorithm_variants)}")
     print(f"Runs per algorithm: {NUM_RUNS}, random_iterations per run: {RANDOM_ITERATIONS}")
+    if benchmark_wall_time_limit_sec is None:
+        print("Benchmark wall-time limit: disabled")
+    else:
+        print(
+            "Benchmark wall-time limit: "
+            f"{benchmark_wall_time_limit_hours} hours ({benchmark_wall_time_limit_sec:.2f} sec)"
+        )
     print(f"Force unique random seeds per run: {FORCE_UNIQUE_RANDOM_SEEDS_PER_RUN}")
 
     data = Data(
@@ -493,7 +558,26 @@ def main() -> None:
     used_model_seeds: set[int] = set()
     used_greedy_seeds: set[int] = set()
 
+    def build_summary_metadata() -> Dict[str, Any]:
+        return {
+            "benchmark_started_at": benchmark_started_at,
+            "benchmark_elapsed_wall_sec": benchmark_elapsed_wall_sec(),
+            "benchmark_wall_time_limit_hours": benchmark_wall_time_limit_hours,
+            "benchmark_wall_time_limit_sec": benchmark_wall_time_limit_sec,
+            "benchmark_time_limit_reached": benchmark_time_limit_reached,
+            "benchmark_stop_reason": benchmark_stop_reason,
+            "num_runs_target_per_algorithm": int(NUM_RUNS),
+            "algorithm_variants_configured": len(algorithm_variants),
+            "runs_completed_total": len(run_rows),
+        }
+
     for variant in algorithm_variants:
+        if benchmark_deadline_perf is not None and benchmark_remaining_wall_sec() <= 0.0:
+            benchmark_time_limit_reached = True
+            benchmark_stop_reason = "wall_time_limit_reached_before_algorithm_start"
+            print("Benchmark wall-time limit reached before next algorithm start; stopping.")
+            break
+
         algorithm_id = str(variant["algorithm_id"])
         greedy_strategy = str(variant["greedy_order_strategy"])
         sampling_strategy = str(variant["sampling_strategy"])
@@ -514,7 +598,20 @@ def main() -> None:
             algo_image_dir = IMAGES_DIR / algorithm_id
             algo_image_dir.mkdir(parents=True, exist_ok=True)
 
-        for run_idx in range(1, int(NUM_RUNS) + 1):
+        run_idx = 0
+        while True:
+            if benchmark_deadline_perf is None:
+                if run_idx >= int(NUM_RUNS):
+                    break
+            else:
+                remaining_wall_sec_before_run = benchmark_remaining_wall_sec()
+                if remaining_wall_sec_before_run is None or remaining_wall_sec_before_run <= 0.0:
+                    benchmark_time_limit_reached = True
+                    benchmark_stop_reason = "wall_time_limit_reached_before_next_run"
+                    print("Benchmark wall-time limit reached before next run; stopping.")
+                    break
+
+            run_idx += 1
             global_run_idx += 1
             if BASE_RANDOM_SEED is None:
                 if FORCE_UNIQUE_RANDOM_SEEDS_PER_RUN:
@@ -539,6 +636,7 @@ def main() -> None:
                 GREEDY_USE_RESULT_CACHE and greedy_strategy != "random"
             )
             run_started = datetime.now().isoformat(timespec="seconds")
+            run_wall_time_limit_sec = benchmark_remaining_wall_sec()
 
             solver = solver_cls(
                 data=data,
@@ -572,6 +670,7 @@ def main() -> None:
                 model_num_threads=MODEL_NUM_THREADS,
                 stop_after_first_solution=STOP_AFTER_FIRST_SOLUTION,
                 model_enable_output=MODEL_ENABLE_OUTPUT,
+                wall_time_limit_sec=run_wall_time_limit_sec,
                 min_unpacked_in_sample=MIN_UNPACKED_IN_SAMPLE,
                 random_iterations=RANDOM_ITERATIONS,
                 random_seed=run_seed,
@@ -719,16 +818,37 @@ def main() -> None:
                 encoding="utf-8",
             )
 
+            run_progress = (
+                f"{run_idx}/{NUM_RUNS}"
+                if benchmark_deadline_perf is None or run_idx <= int(NUM_RUNS)
+                else f"{run_idx} (beyond target {NUM_RUNS})"
+            )
             print(
-                f"{algorithm_id} run {run_idx}/{NUM_RUNS}: status={run_row['status']}, "
+                f"{algorithm_id} run {run_progress}: status={run_row['status']}, "
                 f"model_status={run_row['model_status']}, improved={run_row['improved_over_greedy']}, "
                 f"final_minus_greedy={run_row['final_minus_greedy']}"
             )
 
-            persist_intermediate(run_rows, iteration_rows)
+            persist_intermediate(run_rows, iteration_rows, build_summary_metadata())
             print(f"Saved summary (intermediate): {RESULTS_DIR / 'summary.txt'}")
 
-    persist_intermediate(run_rows, iteration_rows)
+            if benchmark_deadline_perf is not None and benchmark_remaining_wall_sec() <= 0.0:
+                benchmark_time_limit_reached = True
+                benchmark_stop_reason = "wall_time_limit_reached_after_run"
+                print("Benchmark wall-time limit reached after run completion; stopping.")
+                break
+
+        if benchmark_time_limit_reached:
+            break
+
+    if benchmark_stop_reason == "in_progress":
+        benchmark_stop_reason = (
+            "wall_time_limit_reached"
+            if benchmark_time_limit_reached
+            else "completed_all_configured_work"
+        )
+
+    persist_intermediate(run_rows, iteration_rows, build_summary_metadata())
 
     print(f"\nSaved: {RESULTS_DIR / 'run_metrics.csv'}")
     print(f"Saved: {RESULTS_DIR / 'iteration_metrics.csv'}")

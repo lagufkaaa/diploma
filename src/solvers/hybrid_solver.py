@@ -116,6 +116,7 @@ class HybridSolver:
         model_num_threads: Optional[int] = None,
         stop_after_first_solution: bool = True,
         model_enable_output: bool = False,
+        wall_time_limit_sec: Optional[float] = None,
         min_unpacked_in_sample: int = 0,
         random_iterations: int = 1,
         random_seed: Optional[int] = 0,
@@ -150,6 +151,26 @@ class HybridSolver:
             elapsed = now - t0
             print(f"[hybrid] t={elapsed:7.2f}s {message}", flush=True)
             last_hybrid_log_ts = now
+
+        wall_time_limit_sec_effective = (
+            None if wall_time_limit_sec is None else max(0.0, float(wall_time_limit_sec))
+        )
+        wall_time_exhausted = False
+
+        def _remaining_wall_time_sec() -> Optional[float]:
+            if wall_time_limit_sec_effective is None:
+                return None
+            return max(0.0, float(wall_time_limit_sec_effective) - (time.perf_counter() - t0))
+
+        def _effective_model_time_limit_sec() -> Optional[float]:
+            remaining = _remaining_wall_time_sec()
+            if remaining is None:
+                if model_time_limit_sec is None:
+                    return None
+                return max(0.0, float(model_time_limit_sec))
+            if model_time_limit_sec is None:
+                return remaining
+            return max(0.0, min(float(model_time_limit_sec), remaining))
 
         _hybrid_log(
             (
@@ -454,7 +475,8 @@ class HybridSolver:
         )
         min_unpacked_requested = max(0, int(min_unpacked_in_sample))
         sample_size = int(requested_sample_size)
-        random_iterations = max(1, int(random_iterations))
+        requested_random_iterations = max(1, int(random_iterations))
+        random_iterations = requested_random_iterations
         if random_seed is None:
             random_seed_used = random.SystemRandom().randrange(0, 2**63)
             random_seed_requested = None
@@ -501,6 +523,18 @@ class HybridSolver:
             return 0
 
         for iter_idx in range(random_iterations):
+            remaining_wall_time_sec = _remaining_wall_time_sec()
+            if remaining_wall_time_sec is not None and remaining_wall_time_sec <= 0.0:
+                wall_time_exhausted = True
+                _hybrid_log(
+                    (
+                        f"wall-time limit reached before iter {iter_idx + 1}/"
+                        f"{random_iterations}; stop model iterations"
+                    ),
+                    force=True,
+                )
+                break
+
             if not ordered_pool_ids or sample_size <= 0:
                 sampled_item_ids: Set[object] = set()
             else:
@@ -692,6 +726,13 @@ class HybridSolver:
                     ),
                     force=True,
                 )
+                effective_model_time_limit_sec = _effective_model_time_limit_sec()
+                if effective_model_time_limit_sec is not None and effective_model_time_limit_sec <= 0.0:
+                    _hybrid_log(
+                        f"{iter_label}: no wall time left for model solve [run={run_label}]",
+                        force=True,
+                    )
+                    return {"status": "NOT_SOLVED", "objective_value": None}
                 base_problem_kwargs = dict(
                     data=local_model_data,
                     S=self.S,
@@ -708,7 +749,7 @@ class HybridSolver:
                     min_objective_value=min_objective_value,
                     objective_stop_value=objective_stop_value,
                     relative_gap=solver_gap,
-                    time_limit_sec=model_time_limit_sec,
+                    time_limit_sec=effective_model_time_limit_sec,
                     num_threads=model_num_threads,
                     scip_heuristics_focus=self.scip_heuristics_focus,
                     stop_after_first_solution=stop_after_first_solution,
@@ -840,6 +881,7 @@ class HybridSolver:
                 }
             )
 
+        executed_random_iterations = len(iteration_stats)
         model_results = best_model_results
         model_item_ids = best_model_item_ids
         sampled_item_ids = best_sampled_item_ids
@@ -882,6 +924,7 @@ class HybridSolver:
 
         full_search_mode = (
             model_time_limit_sec is None
+            and wall_time_limit_sec_effective is None
             and not stop_after_first_solution
             and (solver_gap is None or float(solver_gap) <= 0.0)
         )
@@ -945,14 +988,16 @@ class HybridSolver:
                     "selected_unpacked_items_for_model": int(selected_unpacked_in_model),
                     "restricted_items_in_window": len(model_item_ids),
                     "fixed_items_in_model": len(fixed_records),
-                    "random_iterations_requested": int(random_iterations),
-                    "random_iterations_executed": int(random_iterations),
+                    "random_iterations_requested": int(requested_random_iterations),
+                    "random_iterations_executed": int(executed_random_iterations),
                     "min_unpacked_in_sample": int(min_unpacked_requested),
                     "random_sample_size_requested": int(requested_sample_size),
                     "random_sample_size": int(min(len(ordered_pool_ids), sample_size)),
                     "random_seed_requested": random_seed_requested,
                     "random_seed_used": int(random_seed_used),
-                    "best_model_iteration": int(best_model_iteration),
+                    "best_model_iteration": (
+                        int(best_model_iteration) if executed_random_iterations > 0 else None
+                    ),
                     "greedy_objective_value": greedy_obj,
                     "model_objective_value": float(model_obj) if model_obj is not None else None,
                     "final_objective_value": final_objective,
@@ -981,6 +1026,8 @@ class HybridSolver:
                     "greedy_time_sec": greedy_time,
                     "model_time_sec": model_time,
                     "total_time_sec": time.perf_counter() - t0,
+                    "wall_time_limit_sec": wall_time_limit_sec_effective,
+                    "wall_time_exhausted": bool(wall_time_exhausted),
                     "model_status": model_status,
                     "min_objective_fallback_used": bool(best_min_objective_fallback_used),
                     "full_search_mode": full_search_mode,
@@ -1040,14 +1087,16 @@ class HybridSolver:
                 "selected_unpacked_items_for_model": int(selected_unpacked_in_model),
                 "restricted_items_in_window": len(model_item_ids),
                 "fixed_items_in_model": len(fixed_records),
-                "random_iterations_requested": int(random_iterations),
-                "random_iterations_executed": int(random_iterations),
+                "random_iterations_requested": int(requested_random_iterations),
+                "random_iterations_executed": int(executed_random_iterations),
                 "min_unpacked_in_sample": int(min_unpacked_requested),
                 "random_sample_size_requested": int(requested_sample_size),
                 "random_sample_size": int(min(len(ordered_pool_ids), sample_size)),
                 "random_seed_requested": random_seed_requested,
                 "random_seed_used": int(random_seed_used),
-                "best_model_iteration": int(best_model_iteration),
+                "best_model_iteration": (
+                    int(best_model_iteration) if executed_random_iterations > 0 else None
+                ),
                 "greedy_objective_value": greedy_obj,
                 "final_objective_value": final_obj,
                 "greedy_free_space_percent": greedy_free,
@@ -1074,6 +1123,8 @@ class HybridSolver:
                 "greedy_time_sec": greedy_time,
                 "model_time_sec": model_time,
                 "total_time_sec": time.perf_counter() - t0,
+                "wall_time_limit_sec": wall_time_limit_sec_effective,
+                "wall_time_exhausted": bool(wall_time_exhausted),
                 "model_status": model_status,
                 "min_objective_fallback_used": bool(best_min_objective_fallback_used),
                 "full_search_mode": full_search_mode,
