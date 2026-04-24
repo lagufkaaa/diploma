@@ -196,7 +196,7 @@ def main() -> None:
         "unpack_last_n": int(UNPACK_LAST_N),
         "crop_height_ratio": float(CROP_HEIGHT_RATIO),
         "free_space_improvement": FREE_SPACE_IMPROVEMENT,
-        "solver_gap": float(SOLVER_GAP),
+        "solver_gap": None if SOLVER_GAP is None else float(SOLVER_GAP),
         "model_time_limit_sec": MODEL_TIME_LIMIT_SEC,
         "model_num_threads": MODEL_NUM_THREADS,
         "stop_after_first_solution": bool(STOP_AFTER_FIRST_SOLUTION),

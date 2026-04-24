@@ -320,7 +320,7 @@ def test_model_basic():
 
 
 def test_greedy_basic():
-    file_path = DATA_DIR / 'car_mats_2.txt'
+    file_path = DATA_DIR / 'car_mats_7.txt'
     items = util_model.parse_items(str(file_path))
     assert len(items) > 0, "no items parsed from test file"
 

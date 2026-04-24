@@ -32,7 +32,7 @@ OUTPUT_DIR = ROOT_DIR / "hybrid_algorithms_benchmark"
 # ============================================================
 # Benchmark configuration (algorithm combinations)
 # ============================================================
-DATA_FILE = DATA_DIR / "car_mats_7.txt"
+DATA_FILE = DATA_DIR / "car_mats_8.txt"
 R = 4
 S = 10
 HEIGHT = 45000.0
@@ -52,13 +52,15 @@ CROP_ZERO_TOLERANCE = 1e-6
 CROP_LOWEST_MULTIPLIER = 1.5
 # True requires any positive improvement; a positive number means percentage points
 # of required free-space improvement; anything else disables the constraint.
-FREE_SPACE_IMPROVEMENT = False
-EARLY_STOP_FREE_SPACE_IMPROVEMENT = 3
-SOLVER_GAP = 0.5
-MODEL_TIME_LIMIT_SEC: Optional[float] = 3600.0
+FREE_SPACE_IMPROVEMENT = True
+EARLY_STOP_FREE_SPACE_IMPROVEMENT = None
+SOLVER_GAP = None
+MODEL_TIME_LIMIT_SEC: Optional[float] = 1800.0
 MODEL_NUM_THREADS: Optional[int] = None
 STOP_AFTER_FIRST_SOLUTION = False
 MODEL_ENABLE_OUTPUT = True
+# SCIP heuristic tuning preset: default | mild | aggressive | off
+SCIP_HEURISTICS_FOCUS = "default"
 
 RANDOM_ITERATIONS = 5
 RANDOM_SAMPLE_SIZE = 7
@@ -424,11 +426,12 @@ def main() -> None:
         "crop_lowest_multiplier": float(CROP_LOWEST_MULTIPLIER),
         "free_space_improvement": FREE_SPACE_IMPROVEMENT,
         "early_stop_free_space_improvement": EARLY_STOP_FREE_SPACE_IMPROVEMENT,
-        "solver_gap": float(SOLVER_GAP),
+        "solver_gap": None if SOLVER_GAP is None else float(SOLVER_GAP),
         "model_time_limit_sec": MODEL_TIME_LIMIT_SEC,
         "model_num_threads": MODEL_NUM_THREADS,
         "stop_after_first_solution": bool(STOP_AFTER_FIRST_SOLUTION),
         "model_enable_output": bool(MODEL_ENABLE_OUTPUT),
+        "scip_heuristics_focus": SCIP_HEURISTICS_FOCUS,
         "random_iterations": int(RANDOM_ITERATIONS),
         "random_sample_size": int(RANDOM_SAMPLE_SIZE),
         "min_unpacked_in_sample": int(MIN_UNPACKED_IN_SAMPLE),
@@ -466,6 +469,7 @@ def main() -> None:
         f"mode={CROP_SELECTION_MODE}, zero_tolerance={CROP_ZERO_TOLERANCE}, "
         f"lowest_multiplier={CROP_LOWEST_MULTIPLIER}"
     )
+    print(f"SCIP heuristics focus: {SCIP_HEURISTICS_FOCUS}")
     print(f"Run tag: requested={RUN_TAG}, effective={EFFECTIVE_RUN_TAG}")
     print(f"Results dir: {RESULTS_DIR.resolve()}")
     print(f"Algorithm variants: {len(algorithm_variants)}")
@@ -542,6 +546,7 @@ def main() -> None:
                 width=WIDTH,
                 S=S,
                 solver_name=SOLVER_NAME,
+                scip_heuristics_focus=SCIP_HEURISTICS_FOCUS,
                 greedy_enable_output=GREEDY_ENABLE_OUTPUT,
                 greedy_use_result_cache=effective_greedy_use_result_cache,
                 greedy_result_cache_path=effective_greedy_result_cache_path,

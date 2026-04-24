@@ -10,9 +10,13 @@ from shapely.geometry import GeometryCollection, LineString, MultiLineString, Mu
 
 from core.data import Data, Item
 from solvers.free_space_improvement import resolve_free_space_improvement_requirement
+from solvers.hybrid_crop import resolve_adaptive_vertical_crop
+from solvers.hybrid_retry import (
+    next_greedy_random_seed_requested,
+    should_restart_greedy_after_empty_unpack,
+)
 from solvers.greedy_solver import GreedySolver
 from solvers.greedy_solver_random import GreedySolverRandom
-from solvers.hybrid_hard_timeout import solve_hybrid_problem_with_hard_timeout
 from solvers.model_hybrid import Problem as HybridProblem
 
 
@@ -51,6 +55,7 @@ class HybridSolver:
         S: int = 1,
         *,
         solver_name: str = "SCIP",
+        scip_heuristics_focus: str = "default",
         greedy_eps_area: float = 1e-6,
         greedy_enable_output: bool = True,
         greedy_log_interval_sec: float = 2.0,
@@ -68,6 +73,9 @@ class HybridSolver:
         self.width = float(width)
         self.S = int(S)
         self.solver_name = solver_name
+        self.scip_heuristics_focus = HybridProblem._normalize_scip_heuristics_focus(
+            scip_heuristics_focus
+        )
         self.greedy_eps_area = float(greedy_eps_area)
         self.greedy_enable_output = bool(greedy_enable_output)
         self.greedy_log_interval_sec = max(0.2, float(greedy_log_interval_sec))
@@ -210,156 +218,195 @@ class HybridSolver:
             result_cache_ttl_days=self.greedy_result_cache_ttl_days,
             shared_result_cache=self.greedy_shared_result_cache,
         )
-        if greedy_order_strategy_effective == "random":
-            greedy = GreedySolverRandom(
-                **greedy_common_kwargs,
-                log_prefix="[hybrid-greedy-random]",
-                random_seed=greedy_random_seed_requested,
-            )
-        else:
-            greedy = GreedySolver(
-                **greedy_common_kwargs,
-                log_prefix="[hybrid-greedy]",
-            )
-        greedy_start = time.perf_counter()
-        greedy_results = greedy.solve()
-        greedy_time = time.perf_counter() - greedy_start
-        greedy_cache_hit = bool(getattr(greedy, "last_result_cache_hit", False))
-        greedy_random_seed_used = getattr(greedy, "last_random_seed_used", None)
-        _hybrid_log(f"greedy finished in {greedy_time:.2f}s", force=True)
-
-        if greedy_results.get("status") != "OPTIMAL":
-            return {
-                "status": "GREEDY_FAILED",
-                "final": greedy_results,
-                "visualization": {
-                    "greedy_solution": greedy_results,
-                    "packed_indices": [],
-                    "candidate_indices": [],
-                    "fixed_indices": [],
-                    "use_top_crop": bool(use_top_crop),
-                    "used_crop_height": used_crop_height,
-                    "crop_y_min": packing_y_min,
-                    "packing_y_min": packing_y_min,
-                    "packing_y_max": packing_y_max,
-                },
-                "hybrid_stats": {
-                    "greedy_cache_hit": greedy_cache_hit,
-                    "greedy_order_strategy": greedy_order_strategy_effective,
-                    "greedy_random_seed_requested": greedy_random_seed_requested,
-                    "greedy_random_seed_used": greedy_random_seed_used,
-                    "sampling_strategy": "random",
-                    "crop_selection_mode_requested": str(crop_selection_mode),
-                    "crop_selection_mode_effective": crop_selection_mode_effective,
-                    "crop_zero_tolerance": float(crop_zero_tolerance_effective),
-                    "crop_lowest_multiplier": float(crop_lowest_multiplier_effective),
-                    "crop_decision": crop_decision,
-                    "lowest_unpacked_y_for_crop": lowest_unpacked_y_for_crop,
-                    "lowest_distance_to_top_for_crop": lowest_distance_to_top_for_crop,
-                    "scaled_lowest_distance_for_crop": scaled_lowest_distance_for_crop,
-                    "raw_unpacked_candidates_for_crop_count": int(
-                        raw_unpacked_candidates_for_crop_count
-                    ),
-                    "greedy_time_sec": greedy_time,
-                    "model_time_sec": 0.0,
-                    "total_time_sec": time.perf_counter() - t0,
-                },
-            }
-
-        packed_records = self._collect_packed_records(greedy_results)
-        self._sort_packed_records_by_greedy_time(packed_records, greedy_results)
-        packed_ids = {rec.item.id for rec in packed_records}
-        all_item_ids = {it.id for it in self.data.items}
-        greedy_unpacked_ids = all_item_ids - packed_ids
-        _hybrid_log(
-            f"post-greedy: packed_records={len(packed_records)}, greedy_unpacked_ids={len(greedy_unpacked_ids)}",
-            force=True,
+        greedy_random_seed_requested_initial = greedy_random_seed_requested
+        greedy_random_seed_requested_effective = greedy_random_seed_requested
+        greedy_restarts_due_to_empty_unpack = 0
+        greedy_attempts_total = 0
+        greedy_random_seed_used_history: List[int] = []
+        max_greedy_restarts_due_to_empty_unpack = (
+            1 if greedy_order_strategy_effective == "random" else 0
         )
+        greedy_time = 0.0
 
-        if use_top_crop and crop_selection_mode_effective == "unpacked_lowest_y":
-            raw_unpacked_candidate_ids_for_crop = self._select_candidate_ids(
-                packed_records=packed_records,
+        while True:
+            greedy_attempts_total += 1
+            if greedy_order_strategy_effective == "random":
+                greedy = GreedySolverRandom(
+                    **greedy_common_kwargs,
+                    log_prefix="[hybrid-greedy-random]",
+                    random_seed=greedy_random_seed_requested_effective,
+                )
+            else:
+                greedy = GreedySolver(
+                    **greedy_common_kwargs,
+                    log_prefix="[hybrid-greedy]",
+                )
+            greedy_start = time.perf_counter()
+            greedy_results = greedy.solve()
+            greedy_time += time.perf_counter() - greedy_start
+            greedy_cache_hit = bool(getattr(greedy, "last_result_cache_hit", False))
+            greedy_random_seed_used = getattr(greedy, "last_random_seed_used", None)
+            if greedy_random_seed_used is not None:
+                greedy_random_seed_used_history.append(int(greedy_random_seed_used))
+            _hybrid_log(
+                f"greedy attempt {greedy_attempts_total} finished in {greedy_time:.2f}s total",
+                force=True,
+            )
+
+            if greedy_results.get("status") != "OPTIMAL":
+                return {
+                    "status": "GREEDY_FAILED",
+                    "final": greedy_results,
+                    "visualization": {
+                        "greedy_solution": greedy_results,
+                        "packed_indices": [],
+                        "candidate_indices": [],
+                        "fixed_indices": [],
+                        "use_top_crop": bool(use_top_crop),
+                        "used_crop_height": used_crop_height,
+                        "crop_y_min": packing_y_min,
+                        "packing_y_min": packing_y_min,
+                        "packing_y_max": packing_y_max,
+                    },
+                    "hybrid_stats": {
+                        "scip_heuristics_focus": self.scip_heuristics_focus,
+                        "greedy_cache_hit": greedy_cache_hit,
+                        "greedy_order_strategy": greedy_order_strategy_effective,
+                        "greedy_random_seed_requested": greedy_random_seed_requested_effective,
+                        "greedy_random_seed_requested_initial": greedy_random_seed_requested_initial,
+                        "greedy_random_seed_used": greedy_random_seed_used,
+                        "greedy_random_seed_used_history": greedy_random_seed_used_history,
+                        "greedy_attempts_total": int(greedy_attempts_total),
+                        "greedy_restarts_due_to_empty_unpack": int(
+                            greedy_restarts_due_to_empty_unpack
+                        ),
+                        "sampling_strategy": "random",
+                        "crop_selection_mode_requested": str(crop_selection_mode),
+                        "crop_selection_mode_effective": crop_selection_mode_effective,
+                        "crop_zero_tolerance": float(crop_zero_tolerance_effective),
+                        "crop_lowest_multiplier": float(crop_lowest_multiplier_effective),
+                        "crop_decision": crop_decision,
+                        "lowest_unpacked_y_for_crop": lowest_unpacked_y_for_crop,
+                        "lowest_distance_to_top_for_crop": lowest_distance_to_top_for_crop,
+                        "scaled_lowest_distance_for_crop": scaled_lowest_distance_for_crop,
+                        "raw_unpacked_candidates_for_crop_count": int(
+                            raw_unpacked_candidates_for_crop_count
+                        ),
+                        "greedy_time_sec": greedy_time,
+                        "model_time_sec": 0.0,
+                        "total_time_sec": time.perf_counter() - t0,
+                    },
+                }
+
+            packed_records = self._collect_packed_records(greedy_results)
+            self._sort_packed_records_by_greedy_time(packed_records, greedy_results)
+            packed_ids = {rec.item.id for rec in packed_records}
+            all_item_ids = {it.id for it in self.data.items}
+            greedy_unpacked_ids = all_item_ids - packed_ids
+            _hybrid_log(
+                f"post-greedy: packed_records={len(packed_records)}, greedy_unpacked_ids={len(greedy_unpacked_ids)}",
+                force=True,
+            )
+
+            if use_top_crop and crop_selection_mode_effective == "unpacked_lowest_y":
+                raw_unpacked_candidate_ids_for_crop = self._select_candidate_ids(
+                    packed_records=packed_records,
+                    unpack_last_n=unpack_last_n,
+                )
+                raw_unpacked_candidates_for_crop_count = len(raw_unpacked_candidate_ids_for_crop)
+                lowest_unpacked_y_for_crop = self._lowest_packed_point_y_by_item_ids(
+                    packed_records=packed_records,
+                    item_ids=raw_unpacked_candidate_ids_for_crop,
+                )
+                crop_selection = resolve_adaptive_vertical_crop(
+                    height=self.height,
+                    base_crop_height=base_crop_h_clamped,
+                    lowest_unpacked_y=lowest_unpacked_y_for_crop,
+                    crop_zero_tolerance=crop_zero_tolerance_effective,
+                    crop_lowest_multiplier=crop_lowest_multiplier_effective,
+                )
+                used_crop_height = float(crop_selection.used_crop_height)
+                crop_decision = str(crop_selection.crop_decision)
+                lowest_distance_to_top_for_crop = crop_selection.lowest_distance_to_top
+                scaled_lowest_distance_for_crop = crop_selection.scaled_lowest_distance
+                packing_y_min = self.height - used_crop_height
+                packing_y_max = self.height
+            elif use_top_crop:
+                crop_decision = "fixed_height_mode"
+
+            _hybrid_log(
+                (
+                    f"crop selection: mode={crop_selection_mode_effective}, decision={crop_decision}, "
+                    f"base_crop_height={base_crop_h_clamped:.3f}, used_crop_height={used_crop_height:.3f}, "
+                    f"lowest_unpacked_y={lowest_unpacked_y_for_crop}, "
+                    f"distance_to_top={lowest_distance_to_top_for_crop}, "
+                    f"scaled_distance={scaled_lowest_distance_for_crop}, "
+                    f"multiplier={crop_lowest_multiplier_effective:.6f}, "
+                    f"zero_tolerance={crop_zero_tolerance_effective:.6f}, "
+                    f"raw_candidates={raw_unpacked_candidates_for_crop_count}"
+                ),
+                force=True,
+            )
+
+            packed_crossing_cut_ids: Set[object] = set()
+            packed_below_cut_ids: Set[object] = set()
+            if use_top_crop:
+                packed_crossing_cut_ids = self._collect_packed_ids_crossing_y_line(
+                    packed_records=packed_records,
+                    y_line=packing_y_min,
+                )
+                packed_below_cut_ids = self._collect_packed_ids_below_y_line(
+                    packed_records=packed_records,
+                    y_line=packing_y_min,
+                )
+                _hybrid_log(
+                    f"packed items crossing cut line (kept fixed): {len(packed_crossing_cut_ids)}",
+                    force=True,
+                )
+                _hybrid_log(
+                    f"packed items below cut line (cannot unpack): {len(packed_below_cut_ids)}",
+                    force=True,
+                )
+
+            candidate_source_records = (
+                [
+                    rec
+                    for rec in packed_records
+                    if rec.item.id not in packed_crossing_cut_ids
+                    and rec.item.id not in packed_below_cut_ids
+                ]
+                if use_top_crop
+                else packed_records
+            )
+            candidate_ids = self._select_candidate_ids(
+                packed_records=candidate_source_records,
                 unpack_last_n=unpack_last_n,
             )
-            raw_unpacked_candidates_for_crop_count = len(raw_unpacked_candidate_ids_for_crop)
-            lowest_unpacked_y_for_crop = self._lowest_packed_point_y_by_item_ids(
-                packed_records=packed_records,
-                item_ids=raw_unpacked_candidate_ids_for_crop,
-            )
-            if lowest_unpacked_y_for_crop is None:
-                crop_decision = "adaptive_no_candidates_fallback_crop_height"
-            elif float(lowest_unpacked_y_for_crop) <= crop_zero_tolerance_effective + 1e-9:
-                crop_decision = "adaptive_lowest_near_zero_fallback_crop_height"
-            else:
-                lowest_distance_to_top_for_crop = max(
-                    0.0,
-                    self.height - float(lowest_unpacked_y_for_crop),
-                )
-                scaled_lowest_distance_for_crop = (
-                    float(lowest_distance_to_top_for_crop)
-                    * float(crop_lowest_multiplier_effective)
-                )
-                used_crop_height = max(
-                    float(base_crop_h_clamped),
-                    float(scaled_lowest_distance_for_crop),
-                )
-                used_crop_height = max(0.0, min(self.height, float(used_crop_height)))
-                crop_decision = "adaptive_scaled_distance_vs_crop_height"
-            packing_y_min = self.height - used_crop_height
-            packing_y_max = self.height
-        elif use_top_crop:
-            crop_decision = "fixed_height_mode"
+            unpack_ids = set(candidate_ids)
+            _hybrid_log(f"selected unpack_last_n candidates: {len(unpack_ids)}", force=True)
 
-        _hybrid_log(
-            (
-                f"crop selection: mode={crop_selection_mode_effective}, decision={crop_decision}, "
-                f"base_crop_height={base_crop_h_clamped:.3f}, used_crop_height={used_crop_height:.3f}, "
-                f"lowest_unpacked_y={lowest_unpacked_y_for_crop}, "
-                f"distance_to_top={lowest_distance_to_top_for_crop}, "
-                f"scaled_distance={scaled_lowest_distance_for_crop}, "
-                f"multiplier={crop_lowest_multiplier_effective:.6f}, "
-                f"zero_tolerance={crop_zero_tolerance_effective:.6f}, "
-                f"raw_candidates={raw_unpacked_candidates_for_crop_count}"
-            ),
-            force=True,
-        )
+            if not should_restart_greedy_after_empty_unpack(
+                greedy_order_strategy=greedy_order_strategy_effective,
+                unpack_ids_count=len(unpack_ids),
+                restarts_used=greedy_restarts_due_to_empty_unpack,
+                max_restarts=max_greedy_restarts_due_to_empty_unpack,
+            ):
+                break
 
-        packed_crossing_cut_ids: Set[object] = set()
-        packed_below_cut_ids: Set[object] = set()
-        if use_top_crop:
-            packed_crossing_cut_ids = self._collect_packed_ids_crossing_y_line(
-                packed_records=packed_records,
-                y_line=packing_y_min,
-            )
-            packed_below_cut_ids = self._collect_packed_ids_below_y_line(
-                packed_records=packed_records,
-                y_line=packing_y_min,
+            greedy_restarts_due_to_empty_unpack += 1
+            greedy_random_seed_requested_effective = next_greedy_random_seed_requested(
+                initial_seed_requested=greedy_random_seed_requested_initial,
+                restart_index=greedy_restarts_due_to_empty_unpack,
             )
             _hybrid_log(
-                f"packed items crossing cut line (kept fixed): {len(packed_crossing_cut_ids)}",
+                (
+                    "no items were unpacked after crop filtering; restart greedy "
+                    f"(restart {greedy_restarts_due_to_empty_unpack}/"
+                    f"{max_greedy_restarts_due_to_empty_unpack}, "
+                    f"next_seed={greedy_random_seed_requested_effective})"
+                ),
                 force=True,
             )
-            _hybrid_log(
-                f"packed items below cut line (cannot unpack): {len(packed_below_cut_ids)}",
-                force=True,
-            )
-
-        candidate_source_records = (
-            [
-                rec
-                for rec in packed_records
-                if rec.item.id not in packed_crossing_cut_ids
-                and rec.item.id not in packed_below_cut_ids
-            ]
-            if use_top_crop
-            else packed_records
-        )
-        candidate_ids = self._select_candidate_ids(
-            packed_records=candidate_source_records,
-            unpack_last_n=unpack_last_n,
-        )
-        unpack_ids: Set[object] = set(candidate_ids)
-        _hybrid_log(f"selected unpack_last_n candidates: {len(unpack_ids)}", force=True)
 
         model_pool_ids: Set[object] = set(unpack_ids) | set(greedy_unpacked_ids)
         ordered_pool_ids: List[object] = []
@@ -663,47 +710,32 @@ class HybridSolver:
                     relative_gap=solver_gap,
                     time_limit_sec=model_time_limit_sec,
                     num_threads=model_num_threads,
+                    scip_heuristics_focus=self.scip_heuristics_focus,
                     stop_after_first_solution=stop_after_first_solution,
                     progress_label="[model]",
                 )
-                if model_time_limit_sec is not None:
-                    run_results, timed_out_hard, hard_error = solve_hybrid_problem_with_hard_timeout(
-                        problem_kwargs=base_problem_kwargs,
-                        timeout_sec=model_time_limit_sec,
-                    )
-                    if timed_out_hard:
-                        _hybrid_log(
-                            f"{iter_label}: hard timeout reached ({float(model_time_limit_sec):.2f}s), process terminated",
-                            force=True,
-                        )
-                    if hard_error:
-                        _hybrid_log(
-                            f"{iter_label}: hard-timeout helper note: {hard_error}",
-                            force=True,
-                        )
-                else:
-                    problem = HybridProblem(
-                        **base_problem_kwargs,
-                        progress_callback=lambda msg, label=iter_label: _hybrid_log(
-                            f"{label}: {msg}",
-                            force=True,
-                        ),
-                    )
-                    _hybrid_log(
-                        (
-                            f"{iter_label}: build model (Problem init) finished in "
-                            f"{time.perf_counter() - run_build_t0:.2f}s [run={run_label}]"
-                        ),
+                problem = HybridProblem(
+                    **base_problem_kwargs,
+                    progress_callback=lambda msg, label=iter_label: _hybrid_log(
+                        f"{label}: {msg}",
                         force=True,
-                    )
-                    _hybrid_log(
-                        (
-                            f"{iter_label}: start model.solve() "
-                            f"(enable_output={bool(model_enable_output)}, run={run_label})"
-                        ),
-                        force=True,
-                    )
-                    run_results = problem.solve()
+                    ),
+                )
+                _hybrid_log(
+                    (
+                        f"{iter_label}: build model (Problem init) finished in "
+                        f"{time.perf_counter() - run_build_t0:.2f}s [run={run_label}]"
+                    ),
+                    force=True,
+                )
+                _hybrid_log(
+                    (
+                        f"{iter_label}: start model.solve() "
+                        f"(enable_output={bool(model_enable_output)}, run={run_label})"
+                    ),
+                    force=True,
+                )
+                run_results = problem.solve()
                 run_status = str(run_results.get("status", "NOT_SOLVED"))
                 _hybrid_log(
                     f"{iter_label}: model.solve() finished [run={run_label}, status={run_status}]",
@@ -875,10 +907,17 @@ class HybridSolver:
                 "model_result": model_results,
                 "visualization": visualization_payload,
                 "hybrid_stats": {
+                    "scip_heuristics_focus": self.scip_heuristics_focus,
                     "greedy_cache_hit": greedy_cache_hit,
                     "greedy_order_strategy": greedy_order_strategy_effective,
-                    "greedy_random_seed_requested": greedy_random_seed_requested,
+                    "greedy_random_seed_requested": greedy_random_seed_requested_effective,
+                    "greedy_random_seed_requested_initial": greedy_random_seed_requested_initial,
                     "greedy_random_seed_used": greedy_random_seed_used,
+                    "greedy_random_seed_used_history": greedy_random_seed_used_history,
+                    "greedy_attempts_total": int(greedy_attempts_total),
+                    "greedy_restarts_due_to_empty_unpack": int(
+                        greedy_restarts_due_to_empty_unpack
+                    ),
                     "sampling_strategy": "random",
                     "packed_by_greedy": len(packed_records),
                     "unpack_last_n": int(max(0, unpack_last_n)),
@@ -963,10 +1002,17 @@ class HybridSolver:
             "model_result": model_results,
             "visualization": visualization_payload,
             "hybrid_stats": {
+                "scip_heuristics_focus": self.scip_heuristics_focus,
                 "greedy_cache_hit": greedy_cache_hit,
                 "greedy_order_strategy": greedy_order_strategy_effective,
-                "greedy_random_seed_requested": greedy_random_seed_requested,
+                "greedy_random_seed_requested": greedy_random_seed_requested_effective,
+                "greedy_random_seed_requested_initial": greedy_random_seed_requested_initial,
                 "greedy_random_seed_used": greedy_random_seed_used,
+                "greedy_random_seed_used_history": greedy_random_seed_used_history,
+                "greedy_attempts_total": int(greedy_attempts_total),
+                "greedy_restarts_due_to_empty_unpack": int(
+                    greedy_restarts_due_to_empty_unpack
+                ),
                 "sampling_strategy": "random",
                 "packed_by_greedy": len(packed_records),
                 "unpack_last_n": int(max(0, unpack_last_n)),

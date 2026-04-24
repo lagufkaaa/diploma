@@ -11,7 +11,6 @@ from shapely.geometry import Polygon
 from core.data import Data, Item
 from solvers.free_space_improvement import resolve_free_space_improvement_requirement
 from solvers.greedy_solver import GreedySolver
-from solvers.hybrid_hard_timeout import solve_hybrid_problem_with_hard_timeout
 from solvers.model_hybrid import Problem as HybridProblem
 
 
@@ -42,6 +41,7 @@ class HybridSolverWidth:
         S: int = 1,
         *,
         solver_name: str = "SCIP",
+        scip_heuristics_focus: str = "default",
         greedy_eps_area: float = 1e-6,
         greedy_enable_output: bool = True,
         greedy_log_interval_sec: float = 2.0,
@@ -57,6 +57,9 @@ class HybridSolverWidth:
         self.width = float(width)
         self.S = int(S)
         self.solver_name = solver_name
+        self.scip_heuristics_focus = HybridProblem._normalize_scip_heuristics_focus(
+            scip_heuristics_focus
+        )
         self.greedy_eps_area = float(greedy_eps_area)
         self.greedy_enable_output = bool(greedy_enable_output)
         self.greedy_log_interval_sec = max(0.2, float(greedy_log_interval_sec))
@@ -182,6 +185,7 @@ class HybridSolverWidth:
                     "packing_x_max": packing_x_max,
                 },
                 "hybrid_stats": {
+                    "scip_heuristics_focus": self.scip_heuristics_focus,
                     "greedy_cache_hit": greedy_cache_hit,
                     "greedy_time_sec": greedy_time,
                     "model_time_sec": 0.0,
@@ -451,47 +455,32 @@ class HybridSolverWidth:
                     relative_gap=solver_gap,
                     time_limit_sec=model_time_limit_sec,
                     num_threads=model_num_threads,
+                    scip_heuristics_focus=self.scip_heuristics_focus,
                     stop_after_first_solution=stop_after_first_solution,
                     progress_label="[model]",
                 )
-                if model_time_limit_sec is not None:
-                    run_results, timed_out_hard, hard_error = solve_hybrid_problem_with_hard_timeout(
-                        problem_kwargs=base_problem_kwargs,
-                        timeout_sec=model_time_limit_sec,
-                    )
-                    if timed_out_hard:
-                        _hybrid_log(
-                            f"{iter_label}: hard timeout reached ({float(model_time_limit_sec):.2f}s), process terminated",
-                            force=True,
-                        )
-                    if hard_error:
-                        _hybrid_log(
-                            f"{iter_label}: hard-timeout helper note: {hard_error}",
-                            force=True,
-                        )
-                else:
-                    problem = HybridProblem(
-                        **base_problem_kwargs,
-                        progress_callback=lambda msg, label=iter_label: _hybrid_log(
-                            f"{label}: {msg}",
-                            force=True,
-                        ),
-                    )
-                    _hybrid_log(
-                        (
-                            f"{iter_label}: build model (Problem init) finished in "
-                            f"{time.perf_counter() - run_build_t0:.2f}s [run={run_label}]"
-                        ),
+                problem = HybridProblem(
+                    **base_problem_kwargs,
+                    progress_callback=lambda msg, label=iter_label: _hybrid_log(
+                        f"{label}: {msg}",
                         force=True,
-                    )
-                    _hybrid_log(
-                        (
-                            f"{iter_label}: start model.solve() "
-                            f"(enable_output={bool(model_enable_output)}, run={run_label})"
-                        ),
-                        force=True,
-                    )
-                    run_results = problem.solve()
+                    ),
+                )
+                _hybrid_log(
+                    (
+                        f"{iter_label}: build model (Problem init) finished in "
+                        f"{time.perf_counter() - run_build_t0:.2f}s [run={run_label}]"
+                    ),
+                    force=True,
+                )
+                _hybrid_log(
+                    (
+                        f"{iter_label}: start model.solve() "
+                        f"(enable_output={bool(model_enable_output)}, run={run_label})"
+                    ),
+                    force=True,
+                )
+                run_results = problem.solve()
                 run_status = str(run_results.get("status", "NOT_SOLVED"))
                 _hybrid_log(
                     f"{iter_label}: model.solve() finished [run={run_label}, status={run_status}]",
@@ -639,6 +628,7 @@ class HybridSolverWidth:
                 "model_result": model_results,
                 "visualization": visualization_payload,
                 "hybrid_stats": {
+                    "scip_heuristics_focus": self.scip_heuristics_focus,
                     "greedy_cache_hit": greedy_cache_hit,
                     "packed_by_greedy": len(packed_records),
                     "unpack_last_n": int(max(0, unpack_last_n)),
@@ -711,6 +701,7 @@ class HybridSolverWidth:
             "model_result": model_results,
             "visualization": visualization_payload,
             "hybrid_stats": {
+                "scip_heuristics_focus": self.scip_heuristics_focus,
                 "greedy_cache_hit": greedy_cache_hit,
                 "packed_by_greedy": len(packed_records),
                 "unpack_last_n": int(max(0, unpack_last_n)),

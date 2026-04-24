@@ -19,6 +19,7 @@ class Problem:
         width: float,
         solver_name: str = "SCIP",
         *,
+        scip_heuristics_focus: str = "default",
         enable_output: bool = True,
         fixed_item_assignments: Optional[Dict[Item, Tuple[float, int]]] = None,
         no_lower_y_bound_item_ids: Optional[Set[object]] = None,
@@ -46,6 +47,9 @@ class Problem:
 
         self.data = data
         self.solver_name = solver_name
+        self.scip_heuristics_focus = self._normalize_scip_heuristics_focus(
+            scip_heuristics_focus
+        )
         self.solver = pywraplp.Solver.CreateSolver(solver_name)
         if self.solver is None:
             raise RuntimeError(f"Failed to create solver '{solver_name}'")
@@ -445,6 +449,9 @@ class Problem:
 
         params = []
         params.append(f"parallel/maxnthreads = {threads}")
+        params.extend(
+            self._build_scip_heuristics_focus_params(self.scip_heuristics_focus)
+        )
         if self.relative_gap is not None:
             params.append(f"limits/gap = {max(0.0, float(self.relative_gap))}")
         if self.objective_stop_value is not None:
@@ -464,6 +471,70 @@ class Problem:
         if num_threads is not None:
             return max(1, int(num_threads))
         return 1
+
+    @staticmethod
+    def _normalize_scip_heuristics_focus(focus: Optional[str]) -> str:
+        raw = "default" if focus is None else str(focus).strip().lower()
+        raw = raw.replace("-", "_").replace(" ", "_")
+        aliases = {
+            "": "default",
+            "default": "default",
+            "auto": "default",
+            "standard": "default",
+            "normal": "default",
+            "mild": "mild",
+            "light": "mild",
+            "moderate": "mild",
+            "nonaggressive": "mild",
+            "non_aggressive": "mild",
+            "aggressive": "aggressive",
+            "high": "aggressive",
+            "off": "off",
+            "disable": "off",
+            "disabled": "off",
+        }
+        normalized = aliases.get(raw)
+        if normalized is None:
+            raise ValueError(
+                "Unsupported scip_heuristics_focus="
+                f"{focus!r}. Expected one of: default, mild, aggressive, off."
+            )
+        return normalized
+
+    @staticmethod
+    def _build_scip_heuristics_focus_params(focus: str) -> list[str]:
+        presets = {
+            "default": [],
+            "off": [
+                "heuristics/feaspump/freq = -1",
+                "heuristics/rins/freq = -1",
+                "heuristics/ofins/freq = -1",
+                "heuristics/alns/freq = -1",
+                "heuristics/scheduler/freq = -1",
+            ],
+            "mild": [
+                "heuristics/feaspump/freq = 20",
+                "heuristics/rins/freq = 12",
+                "heuristics/ofins/freq = 20",
+                "heuristics/alns/freq = 20",
+                "heuristics/scheduler/freq = 20",
+                "heuristics/scheduler/nodesquot = 0.15",
+                "heuristics/crossover/nodesquot = 0.12",
+                "heuristics/alns/nodesquot = 0.15",
+            ],
+            "aggressive": [
+                "heuristics/feaspump/freq = 10",
+                "heuristics/rins/freq = 8",
+                "heuristics/ofins/freq = 20",
+                "heuristics/alns/freq = 10",
+                "heuristics/scheduler/freq = 10",
+                "heuristics/scheduler/nodesquot = 0.2",
+                "heuristics/crossover/nodesquot = 0.15",
+                "heuristics/alns/nodesquot = 0.2",
+                "heuristics/alns/nsolslim = 5",
+            ],
+        }
+        return list(presets[focus])
 
     def _compute_auto_big_m(self) -> Tuple[float, Dict[str, Optional[float]]]:
         items = list(self.data.items)
