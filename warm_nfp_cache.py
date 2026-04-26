@@ -12,7 +12,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 
-from core.data import Data
+from core.data import Data, resolve_nfp_cache_path
 from utils.helpers import util_model
 
 
@@ -57,9 +57,26 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional TTL for reading cached NFP entries. Writes are still persisted.",
     )
     parser.add_argument(
+        "--cache-flush-interval-sec",
+        type=float,
+        default=30.0,
+        help="Flush pending NFP rows to disk periodically during compute phase (default: 30s).",
+    )
+    parser.add_argument(
+        "--log-interval-sec",
+        type=float,
+        default=10.0,
+        help="Progress log interval while warming cache (default: 10s).",
+    )
+    parser.add_argument(
         "--no-memory-cache",
         action="store_true",
         help="Disable in-process memory cache while warming disk cache.",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress progress logs and print only the final JSON summary.",
     )
     return parser
 
@@ -103,16 +120,38 @@ def main() -> int:
     if not items:
         parser.error(f"No items parsed from file: {file_path}")
 
+    resolved_cache_path = resolve_nfp_cache_path(args.cache_path, file_path.stem)
+    progress_enabled = not bool(args.quiet)
+    workers_label = 1 if args.serial else (args.workers if args.workers is not None else "auto")
+
+    if progress_enabled:
+        print(
+            (
+                f"[warm_nfp_cache] file={file_path} items={len(items)} rotations={max(1, int(args.rotations))} "
+                f"parallel={not bool(args.serial)} workers={workers_label}"
+            ),
+            flush=True,
+        )
+        print(
+            (
+                f"[warm_nfp_cache] cache_path={resolved_cache_path} "
+                f"flush_interval_sec={args.cache_flush_interval_sec} log_interval_sec={args.log_interval_sec}"
+            ),
+            flush=True,
+        )
+
     data = Data(
         items,
         R=max(1, int(args.rotations)),
         parallel_nfp=not bool(args.serial),
         nfp_workers=args.workers,
         use_cache=True,
-        cache_path=args.cache_path,
-        cache_identifier=file_path.stem,
+        cache_path=str(resolved_cache_path),
         cache_ttl_days=args.cache_ttl_days,
+        cache_flush_interval_sec=args.cache_flush_interval_sec,
         use_memory_cache=not bool(args.no_memory_cache),
+        enable_progress_log=progress_enabled,
+        log_interval_sec=args.log_interval_sec,
     )
 
     summary = _build_summary(

@@ -1,5 +1,6 @@
 import sys
 import os
+import sqlite3
 from pathlib import Path
 import time
 
@@ -12,6 +13,7 @@ SRC_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SRC_DIR))
 
 from core.data import Data, Item
+import core.data as data_module
 from core.encoding import Encoding
 from solvers.model import Problem
 from solvers.greedy_solver import GreedySolver
@@ -76,6 +78,57 @@ def test_shared_memory_cache_reused_between_data_instances():
     )
     assert data_greedy.nfp_stats["computed_pairs"] == 0
     assert data_greedy.nfp_stats["memory_cache_hits"] == data_greedy.nfp_stats["pairs_total"]
+
+
+def test_disk_cache_flushes_periodically(tmp_path, monkeypatch):
+    items = [
+        np.array([[0.0, 0.0], [40.0, 0.0], [40.0, 20.0], [0.0, 20.0]]),
+        np.array([[0.0, 0.0], [15.0, 0.0], [15.0, 30.0], [0.0, 30.0]]),
+        np.array([[0.0, 0.0], [18.0, 0.0], [18.0, 10.0], [0.0, 10.0]]),
+    ]
+    cache_path = tmp_path / "nfp_cache.sqlite3"
+    flush_sizes = []
+    fake_wkb = Polygon([[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [0.0, 1.0]]).wkb
+    perf_counter_values = iter([100.0, 100.2, 100.9, 101.1, 101.4, 101.8])
+
+    original_put_many = data_module._NFPDiskCache.put_many
+
+    def tracked_put_many(self, rows):
+        flush_sizes.append(len(rows))
+        return original_put_many(self, rows)
+
+    def fake_compute_nfp_batch(payload):
+        i, _points_i, jobs = payload
+        return [
+            (i, j, cache_key, fake_wkb, 1.0)
+            for j, _points_j, cache_key in jobs
+        ]
+
+    def fake_perf_counter():
+        return next(perf_counter_values)
+
+    monkeypatch.setattr(data_module._NFPDiskCache, "put_many", tracked_put_many)
+    monkeypatch.setattr(data_module, "_compute_nfp_batch", fake_compute_nfp_batch)
+    monkeypatch.setattr(data_module.time, "perf_counter", fake_perf_counter)
+
+    data = Data(
+        items,
+        R=1,
+        parallel_nfp=False,
+        use_memory_cache=False,
+        cache_path=str(cache_path),
+        cache_flush_interval_sec=0.5,
+    )
+
+    assert data.nfp_stats["computed_pairs"] == 6
+    assert data.nfp_stats["cache_rows_written"] == 6
+    assert data.nfp_stats["cache_flush_count"] == 2
+    assert flush_sizes == [4, 2]
+
+    with sqlite3.connect(str(cache_path)) as conn:
+        rows_in_cache = conn.execute("SELECT COUNT(*) FROM nfp_cache").fetchone()[0]
+
+    assert rows_in_cache == 6
 
 
 def test_item_rotation_area_preserved():

@@ -180,6 +180,7 @@ class Data:
         shared_memory_cache: Optional[MutableMapping[str, bytes]] = None,
         enable_progress_log: bool = False,
         log_interval_sec: float = 2.0,
+        cache_flush_interval_sec: Optional[float] = 30.0,
     ):
         self.R = R
         self.angle = 360 / R
@@ -199,6 +200,11 @@ class Data:
         )
         if not self.use_memory_cache:
             self.memory_cache = None
+        self.cache_flush_interval_sec = (
+            None
+            if cache_flush_interval_sec is None
+            else max(0.0, float(cache_flush_interval_sec))
+        )
 
         # Progress logging for long-running NFP build
         self.enable_progress_log = bool(enable_progress_log)
@@ -229,6 +235,8 @@ class Data:
         pair_geoms: Dict[tuple[int, int], object] = {}
         pending_by_i: Dict[int, list] = {}
         cache_rows_to_write = []
+        cache_rows_written_total = 0
+        cache_flush_count = 0
 
         total_pairs = 0
         memory_cache_hits = 0
@@ -241,7 +249,43 @@ class Data:
 
         try:
             last_log_ts = started - self.log_interval_sec
+            last_cache_flush_ts = started
             estimated_total_pairs = max(0, self.N * (self.N - 1))
+
+            def flush_disk_cache(*, force: bool = False) -> int:
+                nonlocal cache_rows_to_write, cache_rows_written_total, cache_flush_count, last_cache_flush_ts
+
+                if cache is None or not cache_rows_to_write:
+                    return 0
+
+                if not force:
+                    if self.cache_flush_interval_sec is None:
+                        return 0
+                    now = time.perf_counter()
+                    if (now - last_cache_flush_ts) < self.cache_flush_interval_sec:
+                        return 0
+                    last_cache_flush_ts = now
+
+                rows_to_flush = cache_rows_to_write
+                cache.put_many(rows_to_flush)
+                flushed_count = len(rows_to_flush)
+                cache_rows_written_total += flushed_count
+                cache_flush_count += 1
+                cache_rows_to_write = []
+                if force:
+                    last_cache_flush_ts = time.perf_counter()
+
+                if self.enable_progress_log:
+                    flush_reason = "final" if force else "periodic"
+                    print(
+                        (
+                            f"[nfp] flushed {flushed_count} rows to disk cache "
+                            f"({flush_reason}, flush_count={cache_flush_count}): {self.cache_path}"
+                        ),
+                        flush=True,
+                    )
+
+                return flushed_count
 
             for i, it_i in enumerate(self.items):
                 for j, it_j in enumerate(self.items):
@@ -312,6 +356,7 @@ class Data:
                                     cache_rows_to_write.append(
                                         (cache_key, sqlite3.Binary(geom_wkb), now_ts, compute_ms)
                                     )
+                            flush_disk_cache()
                             if self.enable_progress_log:
                                 now = time.perf_counter()
                                 if (now - last_log_ts) >= self.log_interval_sec:
@@ -333,6 +378,7 @@ class Data:
                                 cache_rows_to_write.append(
                                     (cache_key, sqlite3.Binary(geom_wkb), now_ts, compute_ms)
                                 )
+                        flush_disk_cache()
                         if self.enable_progress_log:
                             now = time.perf_counter()
                             if (now - last_log_ts) >= self.log_interval_sec:
@@ -342,13 +388,7 @@ class Data:
                                 )
                                 last_log_ts = now
 
-            if cache is not None and cache_rows_to_write:
-                cache.put_many(cache_rows_to_write)
-                if self.enable_progress_log:
-                    print(
-                        f"[nfp] wrote {len(cache_rows_to_write)} rows to disk cache: {self.cache_path}",
-                        flush=True,
-                    )
+            flush_disk_cache(force=True)
 
             for i, it_i in enumerate(self.items):
                 nfp_dict = {}
@@ -368,7 +408,9 @@ class Data:
                 "cache_hits": cache_hits,
                 "cache_misses": cache_misses,
                 "computed_pairs": computed_pairs,
-                "cache_rows_written": len(cache_rows_to_write),
+                "cache_rows_written": cache_rows_written_total,
+                "cache_flush_count": cache_flush_count,
+                "cache_flush_interval_sec": self.cache_flush_interval_sec,
                 "parallel_enabled": self.parallel_nfp,
                 "workers_used": self.nfp_workers if self.parallel_nfp else 1,
                 "elapsed_sec": time.perf_counter() - started,
