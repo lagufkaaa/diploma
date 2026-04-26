@@ -131,6 +131,40 @@ def test_disk_cache_flushes_periodically(tmp_path, monkeypatch):
     assert rows_in_cache == 6
 
 
+def test_nfp_jobs_are_split_into_smaller_payloads(monkeypatch):
+    items = [
+        np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]),
+        np.array([[0.0, 0.0], [12.0, 0.0], [12.0, 8.0], [0.0, 8.0]]),
+        np.array([[0.0, 0.0], [8.0, 0.0], [8.0, 12.0], [0.0, 12.0]]),
+        np.array([[0.0, 0.0], [6.0, 0.0], [6.0, 14.0], [0.0, 14.0]]),
+    ]
+    observed_job_sizes = []
+    fake_wkb = Polygon([[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [0.0, 1.0]]).wkb
+
+    def fake_compute_nfp_batch(payload):
+        i, _points_i, jobs = payload
+        observed_job_sizes.append(len(jobs))
+        return [
+            (i, j, cache_key, fake_wkb, 1.0)
+            for j, _points_j, cache_key in jobs
+        ]
+
+    monkeypatch.setattr(data_module, "_compute_nfp_batch", fake_compute_nfp_batch)
+
+    data = Data(
+        items,
+        R=1,
+        parallel_nfp=False,
+        use_cache=False,
+        use_memory_cache=False,
+        nfp_jobs_per_payload=2,
+    )
+
+    assert data.nfp_stats["computed_pairs"] == 12
+    assert data.nfp_stats["nfp_jobs_per_payload"] == 2
+    assert sorted(observed_job_sizes) == [1, 1, 1, 1, 2, 2, 2, 2]
+
+
 def test_item_rotation_area_preserved():
     square = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
     it = Item(square)

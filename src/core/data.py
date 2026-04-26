@@ -181,6 +181,7 @@ class Data:
         enable_progress_log: bool = False,
         log_interval_sec: float = 2.0,
         cache_flush_interval_sec: Optional[float] = 30.0,
+        nfp_jobs_per_payload: Optional[int] = 32,
     ):
         self.R = R
         self.angle = 360 / R
@@ -205,6 +206,9 @@ class Data:
             if cache_flush_interval_sec is None
             else max(0.0, float(cache_flush_interval_sec))
         )
+        self.nfp_jobs_per_payload = (
+            None if nfp_jobs_per_payload is None else max(1, int(nfp_jobs_per_payload))
+        )
 
         # Progress logging for long-running NFP build
         self.enable_progress_log = bool(enable_progress_log)
@@ -216,6 +220,7 @@ class Data:
             items_with_rotation, dict_rot = self._get_items_with_rotation([Item(points) for points in items])
 
         self.items = items_with_rotation
+        self.N = len(self.items)
         self.dict_rot = dict_rot
 
         for it in self.items:
@@ -329,14 +334,21 @@ class Data:
 
             payloads = []
             for i, jobs in pending_by_i.items():
-                payloads.append((i, points_lists[i], jobs))
+                if self.nfp_jobs_per_payload is None:
+                    payloads.append((i, points_lists[i], jobs))
+                    continue
+                for start in range(0, len(jobs), self.nfp_jobs_per_payload):
+                    payloads.append(
+                        (i, points_lists[i], jobs[start : start + self.nfp_jobs_per_payload])
+                    )
 
             computed_pairs = 0
             total_to_compute = cache_misses
             if self.enable_progress_log:
                 print(
                     f"[nfp] compute phase: payloads={len(payloads)}, to_compute={total_to_compute}, "
-                    f"parallel={self.parallel_nfp}, workers={self.nfp_workers}",
+                    f"parallel={self.parallel_nfp}, workers={self.nfp_workers}, "
+                    f"jobs_per_payload={self.nfp_jobs_per_payload}",
                     flush=True,
                 )
 
@@ -411,6 +423,7 @@ class Data:
                 "cache_rows_written": cache_rows_written_total,
                 "cache_flush_count": cache_flush_count,
                 "cache_flush_interval_sec": self.cache_flush_interval_sec,
+                "nfp_jobs_per_payload": self.nfp_jobs_per_payload,
                 "parallel_enabled": self.parallel_nfp,
                 "workers_used": self.nfp_workers if self.parallel_nfp else 1,
                 "elapsed_sec": time.perf_counter() - started,

@@ -69,6 +69,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Progress log interval while warming cache (default: 10s).",
     )
     parser.add_argument(
+        "--nfp-jobs-per-payload",
+        type=int,
+        default=32,
+        help="How many NFP jobs a worker handles in one batch before reporting back (default: 32).",
+    )
+    parser.add_argument(
         "--no-memory-cache",
         action="store_true",
         help="Disable in-process memory cache while warming disk cache.",
@@ -135,7 +141,8 @@ def main() -> int:
         print(
             (
                 f"[warm_nfp_cache] cache_path={resolved_cache_path} "
-                f"flush_interval_sec={args.cache_flush_interval_sec} log_interval_sec={args.log_interval_sec}"
+                f"flush_interval_sec={args.cache_flush_interval_sec} log_interval_sec={args.log_interval_sec} "
+                f"jobs_per_payload={args.nfp_jobs_per_payload}"
             ),
             flush=True,
         )
@@ -149,6 +156,7 @@ def main() -> int:
         cache_path=str(resolved_cache_path),
         cache_ttl_days=args.cache_ttl_days,
         cache_flush_interval_sec=args.cache_flush_interval_sec,
+        nfp_jobs_per_payload=args.nfp_jobs_per_payload,
         use_memory_cache=not bool(args.no_memory_cache),
         enable_progress_log=progress_enabled,
         log_interval_sec=args.log_interval_sec,
